@@ -1,0 +1,41 @@
+# Folder dependensi Node.js
+**/node_modules/
+
+# Folder virtual environment Python
+**/venv/
+
+# File cache dan log
+**/__pycache__/
+**/.cache/
+
+# Testing artifacts (from create-react-app)
+**/coverage/
+
+# Yarn PnP files
+.pnp/
+.pnp.js
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Folder hasil build
+**/build/
+**/dist/
+
+# File environment
+# Jangan pernah mengunggah file .env yang berisi kredensial atau kunci API
+.env
+.env.local
+.env.*.local
+
+# File spesifik sistem operasi
+.DS_Store
+Thumbs.db
+
+# File spesifik IDE/Editor
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
