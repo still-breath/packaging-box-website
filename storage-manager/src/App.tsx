@@ -62,7 +62,6 @@ export default function App() {
     const apiUrl = 'http://localhost:8000/calculate/python';
 
     try {
-        // Menunggu sebentar untuk memastikan UI loading terlihat
         await new Promise(resolve => setTimeout(resolve, 500));
         const response = await fetch(apiUrl, { 
           method: 'POST',
@@ -128,7 +127,6 @@ export default function App() {
           </div>
       )}
 
-      {/* --- BAGIAN PENTING UNTUK LOADING & ERROR --- */}
       {isLoading && (
         <div className="loading-overlay">
             <div className="spinner"></div>
