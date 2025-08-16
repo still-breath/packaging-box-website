@@ -94,7 +94,10 @@ export default function App() {
   };
 
   return (
-    <div className="app-container">
+    <div 
+      className="app-container"
+      style={page === 'visualization' ? { height: '100vh' } : {}}
+    >
       <Header page={page} setPage={setPage} />
       
       {page === 'data' && (
@@ -135,12 +138,10 @@ export default function App() {
       )}
 
       {error && (
-        <div className="loading-overlay">
-            <div className="error-modal">
-                <h3>Calculation Failed</h3>
-                <p>{error}</p>
-                <button onClick={() => setError(null)}>Close</button>
-            </div>
+        <div className="error-modal">
+            <h3>Calculation Failed</h3>
+            <p>{error}</p>
+            <button onClick={() => setError(null)}>Close</button>
         </div>
       )}
     </div>
