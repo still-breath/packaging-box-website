@@ -1,7 +1,7 @@
 // src/components/Container3DView.tsx
-import React, { useMemo } from 'react';
-import { Canvas, useLoader } from '@react-three/fiber';
-import { OrbitControls, Box, Edges, Grid, Environment, ContactShadows } from '@react-three/drei';
+import React from 'react';
+import { Canvas } from '@react-three/fiber';
+import { OrbitControls, Box, Edges, Grid, ContactShadows } from '@react-three/drei';
 import * as THREE from 'three';
 import { PlacedBox, Container } from '../types/types';
 
@@ -12,91 +12,112 @@ interface Container3DViewProps {
   visibleItems: { [id: string]: boolean };
 }
 
-// Wooden Box Component
-const WoodenBox = ({ position, size, color, showEdges }: any) => {
+// Clean Wooden Crate Component
+const WoodenCrate = ({ position, size, color, showEdges }: any) => {
     const [width, height, depth] = size;
-    
-    // Create wood texture procedurally
-    const woodTexture = useMemo(() => {
-        const canvas = document.createElement('canvas');
-        canvas.width = 512;
-        canvas.height = 512;
-        const context = canvas.getContext('2d')!;
-        
-        // Base wood color
-        const baseColor = new THREE.Color(color || '#8B4513');
-        context.fillStyle = `rgb(${Math.floor(baseColor.r * 255)}, ${Math.floor(baseColor.g * 255)}, ${Math.floor(baseColor.b * 255)})`;
-        context.fillRect(0, 0, 512, 512);
-        
-        // Add wood grain
-        for (let i = 0; i < 100; i++) {
-            const darkerColor = baseColor.clone().multiplyScalar(0.7 + Math.random() * 0.2);
-            context.strokeStyle = `rgb(${Math.floor(darkerColor.r * 255)}, ${Math.floor(darkerColor.g * 255)}, ${Math.floor(darkerColor.b * 255)})`;
-            context.lineWidth = Math.random() * 3 + 1;
-            context.beginPath();
-            context.moveTo(0, Math.random() * 512);
-            context.lineTo(512, Math.random() * 512);
-            context.stroke();
-        }
-        
-        const texture = new THREE.CanvasTexture(canvas);
-        texture.wrapS = THREE.RepeatWrapping;
-        texture.wrapT = THREE.RepeatWrapping;
-        texture.repeat.set(2, 2);
-        return texture;
-    }, [color]);
-
-    const plankWidth = 0.15; // Width of each wooden plank
-    const numPlanks = Math.ceil(width / plankWidth);
-    const actualPlankWidth = width / numPlanks;
+    const woodColor = '#D2B48C'; // Light wood color
+    const labelColor = color || '#FF1493';
 
     return (
         <group position={position}>
-            {/* Main box structure */}
+            {/* Main wooden crate body */}
             <Box args={[width, height, depth]} castShadow receiveShadow>
                 <meshLambertMaterial 
-                    map={woodTexture}
-                    color={color || '#8B4513'}
+                    color={woodColor}
                 />
             </Box>
 
-            {/* Wooden planks on front face */}
-            {Array.from({ length: numPlanks }).map((_, i) => (
+            {/* Wooden slats on front face */}
+            {Array.from({ length: 4 }).map((_, i) => (
                 <Box
-                    key={`front-plank-${i}`}
-                    args={[actualPlankWidth * 0.98, height + 0.01, 0.01]}
+                    key={`front-slat-${i}`}
+                    args={[width * 0.95, height * 0.18, 0.005]}
                     position={[
-                        -width/2 + actualPlankWidth/2 + i * actualPlankWidth,
                         0,
-                        depth/2 + 0.005
+                        -height/2 + height * 0.12 + i * (height * 0.22),
+                        depth/2 + 0.0025
                     ]}
                     castShadow
                 >
                     <meshLambertMaterial 
-                        color={new THREE.Color(color || '#8B4513').multiplyScalar(0.9)}
+                        color={new THREE.Color(woodColor).multiplyScalar(0.95)}
                     />
                 </Box>
             ))}
 
-            {/* Wooden planks on back face */}
-            {Array.from({ length: numPlanks }).map((_, i) => (
+            {/* Wooden slats on back face */}
+            {Array.from({ length: 4 }).map((_, i) => (
                 <Box
-                    key={`back-plank-${i}`}
-                    args={[actualPlankWidth * 0.98, height + 0.01, 0.01]}
+                    key={`back-slat-${i}`}
+                    args={[width * 0.95, height * 0.18, 0.005]}
                     position={[
-                        -width/2 + actualPlankWidth/2 + i * actualPlankWidth,
                         0,
-                        -depth/2 - 0.005
+                        -height/2 + height * 0.12 + i * (height * 0.22),
+                        -depth/2 - 0.0025
                     ]}
                     castShadow
                 >
                     <meshLambertMaterial 
-                        color={new THREE.Color(color || '#8B4513').multiplyScalar(0.9)}
+                        color={new THREE.Color(woodColor).multiplyScalar(0.95)}
                     />
                 </Box>
             ))}
 
-            {/* Metal corner brackets */}
+            {/* Side slats - left */}
+            {Array.from({ length: 4 }).map((_, i) => (
+                <Box
+                    key={`left-slat-${i}`}
+                    args={[0.005, height * 0.18, depth * 0.95]}
+                    position={[
+                        -width/2 - 0.0025,
+                        -height/2 + height * 0.12 + i * (height * 0.22),
+                        0
+                    ]}
+                    castShadow
+                >
+                    <meshLambertMaterial 
+                        color={new THREE.Color(woodColor).multiplyScalar(0.95)}
+                    />
+                </Box>
+            ))}
+
+            {/* Side slats - right */}
+            {Array.from({ length: 4 }).map((_, i) => (
+                <Box
+                    key={`right-slat-${i}`}
+                    args={[0.005, height * 0.18, depth * 0.95]}
+                    position={[
+                        width/2 + 0.0025,
+                        -height/2 + height * 0.12 + i * (height * 0.22),
+                        0
+                    ]}
+                    castShadow
+                >
+                    <meshLambertMaterial 
+                        color={new THREE.Color(woodColor).multiplyScalar(0.95)}
+                    />
+                </Box>
+            ))}
+
+            {/* Colored label/sticker on front */}
+            <Box
+                args={[width * 0.3, height * 0.2, 0.002]}
+                position={[width * 0.25, height * 0.2, depth/2 + 0.01]}
+                castShadow
+            >
+                <meshLambertMaterial color={labelColor} />
+            </Box>
+
+            {/* Colored label/sticker on right side */}
+            <Box
+                args={[0.002, height * 0.2, depth * 0.3]}
+                position={[width/2 + 0.01, height * 0.2, 0]}
+                castShadow
+            >
+                <meshLambertMaterial color={labelColor} />
+            </Box>
+
+            {/* Corner metal brackets */}
             {[
                 [-width/2, height/2, depth/2],
                 [width/2, height/2, depth/2],
@@ -109,69 +130,25 @@ const WoodenBox = ({ position, size, color, showEdges }: any) => {
             ].map((cornerPos, idx) => (
                 <Box
                     key={`bracket-${idx}`}
-                    args={[0.02, 0.02, 0.02]}
+                    args={[0.015, 0.015, 0.015]}
                     position={cornerPos as [number, number, number]}
                     castShadow
                 >
                     <meshStandardMaterial 
-                        color="#404040"
-                        metalness={0.8}
-                        roughness={0.3}
+                        color="#696969"
+                        metalness={0.7}
+                        roughness={0.4}
                     />
                 </Box>
             ))}
 
-            {/* Wooden frame edges */}
+            {/* Edge frames */}
             {showEdges && (
-                <group>
-                    {/* Top frame */}
-                    <Box
-                        args={[width + 0.02, 0.02, 0.02]}
-                        position={[0, height/2 + 0.01, depth/2 + 0.01]}
-                        castShadow
-                    >
-                        <meshLambertMaterial color={new THREE.Color(color || '#8B4513').multiplyScalar(0.6)} />
-                    </Box>
-                    <Box
-                        args={[width + 0.02, 0.02, 0.02]}
-                        position={[0, height/2 + 0.01, -depth/2 - 0.01]}
-                        castShadow
-                    >
-                        <meshLambertMaterial color={new THREE.Color(color || '#8B4513').multiplyScalar(0.6)} />
-                    </Box>
-
-                    {/* Bottom frame */}
-                    <Box
-                        args={[width + 0.02, 0.02, 0.02]}
-                        position={[0, -height/2 - 0.01, depth/2 + 0.01]}
-                        castShadow
-                    >
-                        <meshLambertMaterial color={new THREE.Color(color || '#8B4513').multiplyScalar(0.6)} />
-                    </Box>
-                    <Box
-                        args={[width + 0.02, 0.02, 0.02]}
-                        position={[0, -height/2 - 0.01, -depth/2 - 0.01]}
-                        castShadow
-                    >
-                        <meshLambertMaterial color={new THREE.Color(color || '#8B4513').multiplyScalar(0.6)} />
-                    </Box>
-
-                    {/* Vertical frame edges */}
-                    <Box
-                        args={[0.02, height + 0.04, 0.02]}
-                        position={[-width/2 - 0.01, 0, depth/2 + 0.01]}
-                        castShadow
-                    >
-                        <meshLambertMaterial color={new THREE.Color(color || '#8B4513').multiplyScalar(0.6)} />
-                    </Box>
-                    <Box
-                        args={[0.02, height + 0.04, 0.02]}
-                        position={[width/2 + 0.01, 0, depth/2 + 0.01]}
-                        castShadow
-                    >
-                        <meshLambertMaterial color={new THREE.Color(color || '#8B4513').multiplyScalar(0.6)} />
-                    </Box>
-                </group>
+                <Edges 
+                    color="#8B4513" 
+                    lineWidth={1}
+                    threshold={10}
+                />
             )}
         </group>
     );
@@ -191,49 +168,43 @@ const Container3DView = ({ items, containerDimensions, settings, visibleItems }:
     return (
         <Canvas 
             camera={{ 
-                position: [scaledContainer.width * 2, scaledContainer.height * 2.5, scaledContainer.depth * 2], 
-                fov: 50 
+                position: [scaledContainer.width * 2.2, scaledContainer.height * 1.8, scaledContainer.depth * 2.2], 
+                fov: 45 
             }}
             shadows
             gl={{ antialias: true, alpha: true, shadowMapType: THREE.PCFSoftShadowMap }}
-            style={{ background: 'linear-gradient(135deg, #2c3e50 0%, #34495e 100%)' }}
+            style={{ background: 'linear-gradient(135deg, #2c3e50 0%, #34495e 50%, #2c3e50 100%)' }}
         >
-            {/* Warehouse-style lighting */}
+            {/* Clean warehouse lighting */}
             {settings.addLights && <>
-                <ambientLight intensity={0.3} color="#f4f1de" />
+                <ambientLight intensity={0.6} color="#ffffff" />
                 <directionalLight 
-                    position={[30, 40, 20]} 
-                    intensity={2} 
+                    position={[20, 30, 15]} 
+                    intensity={1.8} 
                     color="#ffffff"
                     castShadow
                     shadow-mapSize-width={4096}
                     shadow-mapSize-height={4096}
-                    shadow-camera-far={200}
-                    shadow-camera-left={-30}
-                    shadow-camera-right={30}
-                    shadow-camera-top={30}
-                    shadow-camera-bottom={-30}
+                    shadow-camera-far={100}
+                    shadow-camera-left={-25}
+                    shadow-camera-right={25}
+                    shadow-camera-top={25}
+                    shadow-camera-bottom={-25}
                     shadow-bias={-0.0001}
                 />
                 <directionalLight 
-                    position={[-20, 30, -15]} 
-                    intensity={1} 
-                    color="#ffd89b"
-                    castShadow
+                    position={[-15, 20, -10]} 
+                    intensity={0.8} 
+                    color="#f8f8ff"
                 />
-                <spotLight
-                    position={[0, scaledContainer.height * 3, 0]}
-                    angle={0.4}
-                    penumbra={0.8}
-                    intensity={1.5}
-                    color="#fff8dc"
-                    castShadow
-                    shadow-mapSize-width={2048}
-                    shadow-mapSize-height={2048}
+                <pointLight 
+                    position={[0, scaledContainer.height * 2, 0]} 
+                    intensity={0.5} 
+                    color="#ffffff"
                 />
             </>}
             
-            {/* Container with industrial look */}
+            {/* Clean container */}
             {settings.showContainer && (
                 <group>
                     <Box 
@@ -241,16 +212,16 @@ const Container3DView = ({ items, containerDimensions, settings, visibleItems }:
                         receiveShadow
                     >
                         <meshStandardMaterial 
-                            color="#34495e"
+                            color="#f5f5f5"
                             transparent 
-                            opacity={0.2}
-                            roughness={0.8}
-                            metalness={0.1}
+                            opacity={0.15}
+                            roughness={0.1}
+                            metalness={0.0}
                         />
                         {settings.showContainerEdges && (
                             <Edges 
-                                color="#e74c3c" 
-                                lineWidth={3}
+                                color="#666666" 
+                                lineWidth={2}
                                 threshold={15}
                             />
                         )}
@@ -258,7 +229,7 @@ const Container3DView = ({ items, containerDimensions, settings, visibleItems }:
                 </group>
             )}
 
-            {/* Wooden boxes */}
+            {/* Wooden crates */}
             {settings.showGoods && itemsToRender.map((item) => {
                 const scaledItem = { 
                     width: item.length * scale,
@@ -277,7 +248,7 @@ const Container3DView = ({ items, containerDimensions, settings, visibleItems }:
                 ];
 
                 return (
-                    <WoodenBox
+                    <WoodenCrate
                         key={item.id}
                         position={position}
                         size={[scaledItem.width, scaledItem.height, scaledItem.depth]}
@@ -287,46 +258,43 @@ const Container3DView = ({ items, containerDimensions, settings, visibleItems }:
                 );
             })}
             
-            {/* Industrial floor grid */}
+            {/* Clean grid */}
             {settings.showBaseGrid && (
                 <Grid 
                     infiniteGrid 
                     position={[0, -scaledContainer.height / 2 - 0.01, 0]}
-                    args={[100, 100]}
-                    cellSize={1}
-                    cellThickness={1}
-                    cellColor="#7f8c8d"
-                    sectionSize={10}
-                    sectionThickness={2}
-                    sectionColor="#95a5a6"
-                    fadeDistance={50}
+                    args={[50, 50]}
+                    cellSize={0.5}
+                    cellThickness={0.8}
+                    cellColor="#999999"
+                    sectionSize={5}
+                    sectionThickness={1.2}
+                    sectionColor="#777777"
+                    fadeDistance={25}
                     fadeStrength={1}
                 />
             )}
 
-            {/* Enhanced shadows */}
+            {/* Soft shadows */}
             <ContactShadows 
                 position={[0, -scaledContainer.height / 2, 0]}
-                opacity={0.5}
-                scale={scaledContainer.width * 3}
-                blur={3}
-                far={scaledContainer.height * 2}
-                color="#2c3e50"
+                opacity={0.4}
+                scale={scaledContainer.width * 2.5}
+                blur={2.5}
+                far={scaledContainer.height}
+                color="#333333"
             />
-
-            {/* Industrial environment */}
-            <Environment preset="warehouse" background={false} />
             
             <OrbitControls 
                 enablePan={true}
                 enableZoom={true}
                 enableRotate={true}
                 minDistance={scaledContainer.width * 0.8}
-                maxDistance={scaledContainer.width * 5}
+                maxDistance={scaledContainer.width * 4}
                 autoRotate={false}
-                dampingFactor={0.08}
+                dampingFactor={0.05}
                 enableDamping={true}
-                maxPolarAngle={Math.PI * 0.8}
+                maxPolarAngle={Math.PI * 0.75}
                 minPolarAngle={Math.PI * 0.1}
             />
         </Canvas>
