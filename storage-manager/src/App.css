@@ -156,6 +156,63 @@ body {
 .add-button-small:hover { background-color: #d1d5db; }
 
 /*================================================================*/
+/* LOGIN PAGE                                                     */
+/*================================================================*/
+.login-page-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background-color: var(--bg-secondary);
+}
+
+.login-card {
+  width: 100%;
+  max-width: 400px;
+  padding: 2.5rem;
+  background-color: var(--bg-primary);
+  border-radius: var(--radius-large);
+  box-shadow: var(--shadow-medium);
+  text-align: center;
+}
+
+.login-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.login-subtitle {
+  color: var(--text-secondary);
+  margin-bottom: 2rem;
+}
+
+.login-error {
+  color: #de350b;
+  margin-top: 1rem;
+  font-size: 0.875rem;
+}
+
+.login-button {
+  width: 100%;
+  padding: 0.85rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-on-brand);
+  background-color: var(--bg-brand);
+  border: none;
+  border-radius: var(--radius-medium);
+  cursor: pointer;
+  margin-top: 1.5rem;
+  transition: background-color 0.2s ease;
+}
+
+.login-button:hover {
+  background-color: var(--bg-brand-hover);
+}
+
+
+/*================================================================*/
 /* HALAMAN VISUALISASI                                            */
 /*================================================================*/
 .viz-canvas-container { flex-grow: 1; background-color: white; border-radius: 0.5rem; box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); position: relative; }

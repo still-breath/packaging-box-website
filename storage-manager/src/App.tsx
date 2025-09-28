@@ -4,12 +4,14 @@ import React, { useState } from 'react';
 import Header from './components/Header';
 import DataCalculationPage from './pages/DataCalculation';
 import VisualizationPage from './pages/VisualizationPage';
+import LoginPage from './pages/LoginPage'; // Import LoginPage
 import { Box, Group, Container, CalculationResult, ApiResponse } from './types/types';
 import { presets, getDefaultGroups } from './data';
 
 import './App.css';
 
 export default function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false); // State untuk autentikasi
   const [page, setPage] = useState<'data' | 'visualization'>('data');
   const [containerData, setContainerData] = useState<Container>(presets['20ft'].container);
   const [boxes, setBoxes] = useState<Box[]>(presets['20ft'].boxes);
@@ -26,6 +28,13 @@ export default function App() {
   const [usedAlgorithm, setUsedAlgorithm] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Updated handleLogin function to accept credentials object
+  const handleLogin = (credentials: { username: string; password: string }) => {
+    if (credentials.username === 'admin' && credentials.password === 'admin') {
+      setIsAuthenticated(true);
+    }
+  };
 
   const handlePresetChange = (presetName: '10ft' | '20ft' | '40ft') => {
     const preset = presets[presetName];
@@ -93,6 +102,10 @@ export default function App() {
     }
   };
 
+  if (!isAuthenticated) {
+    return <LoginPage onLogin={handleLogin} />;
+  }
+
   return (
     <div 
       className="app-container"
@@ -138,10 +151,12 @@ export default function App() {
       )}
 
       {error && (
-        <div className="error-modal">
-            <h3>Calculation Failed</h3>
-            <p>{error}</p>
-            <button onClick={() => setError(null)}>Close</button>
+        <div className="loading-overlay">
+          <div className="error-modal">
+              <h3>Calculation Failed</h3>
+              <p>{error}</p>
+              <button onClick={() => setError(null)}>Close</button>
+          </div>
         </div>
       )}
     </div>
