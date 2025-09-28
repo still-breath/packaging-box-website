@@ -189,7 +189,7 @@ npm start
 # or
 yarn start
 
-# Application will open at: http://localhost:3000 or http://localhost:5173
+# Application will open at: http://localhost:3000
 ```
 
 #### 3. Using the Application
