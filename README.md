@@ -34,7 +34,7 @@
 <a target="blank" href="https://www.uvicorn.org/">
 <img height="30" src="https://img.shields.io/badge/Uvicorn-2B5F3F?style=for-the-badge&logoColor=white" alt="Uvicorn"/>
 </a>
-</a>href="https://github.com/still-breath/packaging-box-website.git">
+</a>
     <img src="./thumbnail.png" height="300" alt="packaging-box-website">
 </a>
 </div>
