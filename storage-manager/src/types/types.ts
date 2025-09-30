@@ -40,8 +40,9 @@ export interface CalculationResult {
   totalWeight: number; 
   placedItems: PlacedBox[];
   unplacedItems: Box[];
-  error?: never; 
 }
+
+export type ApiResponse = CalculationResult | { error: string };
 
 export interface Group {
   id: string;
@@ -49,4 +50,8 @@ export interface Group {
   color: string;
 }
 
-export type ApiResponse = CalculationResult | { error: string };
+export interface UserCredentials {
+  username: string;
+  password: string;
+  email?: string;
+}
