@@ -15,19 +15,17 @@ interface Container3DViewProps {
 // Clean Wooden Crate Component
 const WoodenCrate = ({ position, size, color, showEdges }: any) => {
     const [width, height, depth] = size;
-    const woodColor = '#D2B48C'; // Light wood color
+    const woodColor = '#D2B48C';
     const labelColor = color || '#FF1493';
 
     return (
         <group position={position}>
-            {/* Main wooden crate body */}
             <Box args={[width, height, depth]} castShadow receiveShadow>
                 <meshLambertMaterial 
                     color={woodColor}
                 />
             </Box>
 
-            {/* Wooden slats on front face */}
             {Array.from({ length: 4 }).map((_, i) => (
                 <Box
                     key={`front-slat-${i}`}
@@ -45,7 +43,6 @@ const WoodenCrate = ({ position, size, color, showEdges }: any) => {
                 </Box>
             ))}
 
-            {/* Wooden slats on back face */}
             {Array.from({ length: 4 }).map((_, i) => (
                 <Box
                     key={`back-slat-${i}`}
@@ -63,7 +60,6 @@ const WoodenCrate = ({ position, size, color, showEdges }: any) => {
                 </Box>
             ))}
 
-            {/* Side slats - left */}
             {Array.from({ length: 4 }).map((_, i) => (
                 <Box
                     key={`left-slat-${i}`}
@@ -81,7 +77,6 @@ const WoodenCrate = ({ position, size, color, showEdges }: any) => {
                 </Box>
             ))}
 
-            {/* Side slats - right */}
             {Array.from({ length: 4 }).map((_, i) => (
                 <Box
                     key={`right-slat-${i}`}
@@ -99,7 +94,6 @@ const WoodenCrate = ({ position, size, color, showEdges }: any) => {
                 </Box>
             ))}
 
-            {/* Colored label/sticker on front */}
             <Box
                 args={[width * 0.3, height * 0.2, 0.002]}
                 position={[width * 0.25, height * 0.2, depth/2 + 0.01]}
@@ -108,7 +102,6 @@ const WoodenCrate = ({ position, size, color, showEdges }: any) => {
                 <meshLambertMaterial color={labelColor} />
             </Box>
 
-            {/* Colored label/sticker on right side */}
             <Box
                 args={[0.002, height * 0.2, depth * 0.3]}
                 position={[width/2 + 0.01, height * 0.2, 0]}
@@ -117,7 +110,6 @@ const WoodenCrate = ({ position, size, color, showEdges }: any) => {
                 <meshLambertMaterial color={labelColor} />
             </Box>
 
-            {/* Corner metal brackets */}
             {[
                 [-width/2, height/2, depth/2],
                 [width/2, height/2, depth/2],
@@ -142,7 +134,6 @@ const WoodenCrate = ({ position, size, color, showEdges }: any) => {
                 </Box>
             ))}
 
-            {/* Edge frames */}
             {showEdges && (
                 <Edges 
                     color="#8B4513" 
@@ -175,7 +166,6 @@ const Container3DView = ({ items, containerDimensions, settings, visibleItems }:
             gl={{ antialias: true, alpha: true, shadowMapType: THREE.PCFSoftShadowMap }}
             style={{ background: 'linear-gradient(135deg, #2c3e50 0%, #34495e 50%, #2c3e50 100%)' }}
         >
-            {/* Clean warehouse lighting */}
             {settings.addLights && <>
                 <ambientLight intensity={0.6} color="#ffffff" />
                 <directionalLight 
@@ -204,7 +194,6 @@ const Container3DView = ({ items, containerDimensions, settings, visibleItems }:
                 />
             </>}
             
-            {/* Clean container */}
             {settings.showContainer && (
                 <group>
                     <Box 
@@ -229,7 +218,6 @@ const Container3DView = ({ items, containerDimensions, settings, visibleItems }:
                 </group>
             )}
 
-            {/* Wooden crates */}
             {settings.showGoods && itemsToRender.map((item) => {
                 const scaledItem = { 
                     width: item.length * scale,
@@ -258,7 +246,6 @@ const Container3DView = ({ items, containerDimensions, settings, visibleItems }:
                 );
             })}
             
-            {/* Clean grid */}
             {settings.showBaseGrid && (
                 <Grid 
                     infiniteGrid 
@@ -275,7 +262,6 @@ const Container3DView = ({ items, containerDimensions, settings, visibleItems }:
                 />
             )}
 
-            {/* Soft shadows */}
             <ContactShadows 
                 position={[0, -scaledContainer.height / 2, 0]}
                 opacity={0.4}
