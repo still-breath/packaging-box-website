@@ -1,39 +1,5 @@
 <div align="center">
 <h1>📦 PACKAGING BOX OPTIMIZER - 3D CONTAINER<p align="center">
-<a target="blank" href="https://golang.org/">
-<img height="30" src="https://img.shields.io/badge/Go-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go"/>
-</a>
-<a target="blank" href="https://gin-gonic.com/">
-<img height="30" src="https://img.shields.io/badge/Gin-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Gin"/>
-</a>
-<a target="blank" href="https://www.python.org/">
-<img height="30" src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"/>
-</a>
-<a target="blank" href="https://fastapi.tiangolo.com/">
-<img height="30" src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=FastAPI&logoColor=white" alt="FastAPI"/>
-</a>
-<a target="blank" href="https://www.gurobi.com/">
-<img height="30" src="https://img.shields.io/badge/Gurobi-FF6600?style=for-the-badge&logoColor=white" alt="Gurobi"/>
-</a>
-<a target="blank" href="https://numpy.org/">
-<img height="30" src="https://img.shields.io/badge/NumPy-013243?style=for-the-badge&logo=numpy&logoColor=white" alt="NumPy"/>
-</a>
-</p>T<p align="center">
-<a target="blank" href="https://www.postgresql.org/">
-<img height="30" src="https://img.shields.io/badge/PostgreSQL-336791?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL"/>
-</a>
-<a target="blank" href="https://www.docker.com/">
-<img height="30" src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker"/>
-</a>
-<a target="blank" href="https://pandas.pydata.org/">
-<img height="30" src="https://img.shields.io/badge/Pandas-150458?style=for-the-badge&logo=pandas&logoColor=white" alt="Pandas"/>
-</a>
-<a target="blank" href="https://docs.pydantic.dev/">
-<img height="30" src="https://img.shields.io/badge/Pydantic-E92063?style=for-the-badge&logoColor=white" alt="Pydantic"/>
-</a>
-<a target="blank" href="https://www.uvicorn.org/">
-<img height="30" src="https://img.shields.io/badge/Uvicorn-2B5F3F?style=for-the-badge&logoColor=white" alt="Uvicorn"/>
-</a>
 </a>
     <img src="./thumbnail.png" height="300" alt="packaging-box-website">
 </a>
