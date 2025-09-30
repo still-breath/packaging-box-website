@@ -16,7 +16,15 @@ from clptac_service import run_clp_packing
 from ga_service import run_ga_packing
 
 # Inisialisasi aplikasi FastAPI
-app = FastAPI()
+app = FastAPI(
+    title="Storage Box API",
+    description="API for storage box optimization with authentication",
+    version="1.0.0"
+)
+
+@app.get("/")
+def read_root():
+    return {"status": "ok", "message": "Storage Box API is running"}
 
 # Konfigurasi CORS untuk mengizinkan permintaan dari frontend React Anda
 origins = [
@@ -73,6 +81,10 @@ class UserCreate(UserBase):
 class User(UserBase):
     id: int
     created_at: datetime
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
 
 class Token(BaseModel):
     access_token: str
@@ -138,22 +150,55 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-@app.post("/register")
-async def register(user: UserCreate):
-    # TODO: Implementasi penyimpanan ke database
-    # Untuk sementara, kita return success
-    hashed_password = get_password_hash(user.password)
-    return {"message": "User registered successfully"}
+@app.post("/auth/register")
+async def register(user_data: UserCreate):
+    try:
+        # Validasi input
+        if not user_data.username or not user_data.email or not user_data.password:
+            return {"detail": "Missing required fields"}, 400
+            
+        hashed_password = get_password_hash(user_data.password)
+        # TODO: Save to database
+        
+        # Return success response
+        return {
+            "status": "success",
+            "user": {
+                "id": 1,  # dummy id
+                "username": user_data.username,
+                "email": user_data.email,
+                "created_at": datetime.utcnow().isoformat()
+            }
+        }
+    except Exception as e:
+        return {"detail": str(e)}, 400
 
-@app.post("/token")
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    # TODO: Implementasi validasi user dari database
-    # Untuk sementara, kita return dummy token
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": form_data.username}, expires_delta=access_token_expires
-    )
-    return {"access_token": access_token, "token_type": "bearer"}
+@app.post("/auth/login")
+async def login(login_data: LoginRequest):
+    try:
+        # TODO: Validate against database
+        if not login_data.username or not login_data.password:
+            return {"detail": "Missing username or password"}, 400
+            
+        # Create access token
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": login_data.username},
+            expires_delta=access_token_expires
+        )
+        
+        # Return success response
+        return {
+            "status": "success",
+            "token": access_token,
+            "token_type": "bearer",
+            "user": {
+                "username": login_data.username,
+                "email": "dummy@email.com"  # Will be replaced with DB data
+            }
+        }
+    except Exception as e:
+        return {"detail": str(e)}, 401
 
 @app.get("/")
 def read_root():
