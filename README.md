@@ -1,5 +1,5 @@
 <div align="center">
-<h1>📦 PACKAGING BOX OPTIMIZER - 3D CONTAIN<p align="center">
+<h1>📦 PACKAGING BOX OPTIMIZER - 3D CONTAINER<p align="center">
 <a target="blank" href="https://golang.org/">
 <img height="30" src="https://img.shields.io/badge/Go-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go"/>
 </a>
@@ -34,16 +34,16 @@
 <a target="blank" href="https://www.uvicorn.org/">
 <img height="30" src="https://img.shields.io/badge/Uvicorn-2B5F3F?style=for-the-badge&logoColor=white" alt="Uvicorn"/>
 </a>
-</p>href="https://github.com/still-breath/packaging-box-optimizer.git">
-    <img src="./thumbnail.png" height="300" alt="packaging-box-optimizer">
+</p>href="https://github.com/still-breath/packaging-box-website.git">
+    <img src="./thumbnail.png" height="300" alt="packaging-box-website">
 </a>
 </div>
 
 <p align="center">
 <a target="_blank" href="https://www.linkedin.com/in/syahrulahmad/"><img height="20" src="https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white" /></a>
-<a target="_blank" href="https://github.com/still-breath/packaging-box-optimizer"><img height="20" src="https://img.shields.io/github/license/still-breath/packaging-box-optimizer" alt="License"></a>
-<a target="_blank" href="https://github.com/still-breath/packaging-box-optimizer"><img height="20" src="https://img.shields.io/github/commit-activity/t/still-breath/packaging-box-optimizer" alt="Last Commits"></a>
-<a target="_blank" href="https://github.com/still-breath/packaging-box-optimizer"><img height="20" src="https://img.shields.io/github/repo-size/still-breath/packaging-box-optimizer" alt="Repo Size"></a>
+<a target="_blank" href="https://github.com/still-breath/packaging-box-website"><img height="20" src="https://img.shields.io/github/license/still-breath/packaging-box-website" alt="License"></a>
+<a target="_blank" href="https://github.com/still-breath/packaging-box-website"><img height="20" src="https://img.shields.io/github/commit-activity/t/still-breath/packaging-box-website" alt="Last Commits"></a>
+<a target="_blank" href="https://github.com/still-breath/packaging-box-website"><img height="20" src="https://img.shields.io/github/repo-size/still-breath/packaging-box-website" alt="Repo Size"></a>
 </p>
 
 <p align="center">
