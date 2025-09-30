@@ -4,3 +4,6 @@ numpy
 matplotlib
 python-multipart
 gurobipy
+passlib[bcrypt]
+python-jose[cryptography]
+python-multipart
