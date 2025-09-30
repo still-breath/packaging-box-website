@@ -59,12 +59,11 @@ export default function App() {
   const handleRegister = async (credentials: { username: string; email: string; password: string }) => {
     try {
       await registerUser(credentials);
-      // On successful registration, switch to login page with a success message
       setAuthPage('login');
       alert('Registration successful! Please log in.');
     } catch (err: any) {
       setError(err.message || 'Registration failed');
-      throw err; // Re-throw to be caught in the component
+      throw err;
     }
   };
 
