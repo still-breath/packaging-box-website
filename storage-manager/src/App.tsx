@@ -1,22 +1,26 @@
 // src/App.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 import Header from './components/Header';
 import DataCalculationPage from './pages/DataCalculation';
 import VisualizationPage from './pages/VisualizationPage';
-import LoginPage from './pages/LoginPage'; // Import LoginPage
+import LoginPage from './pages/LoginPage';
+import RegisterPage from './pages/RegisterPage';
 import { Box, Group, Container, CalculationResult, ApiResponse } from './types/types';
 import { presets, getDefaultGroups } from './data';
+import { loginUser, registerUser, postCalculation } from './api';
 
 import './App.css';
 
 export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false); // State untuk autentikasi
+  const [token, setToken] = useState<string | null>(null);
   const [page, setPage] = useState<'data' | 'visualization'>('data');
+  const [authPage, setAuthPage] = useState<'login' | 'register'>('login');
+
+  // Data state
   const [containerData, setContainerData] = useState<Container>(presets['20ft'].container);
   const [boxes, setBoxes] = useState<Box[]>(presets['20ft'].boxes);
   const [groups, setGroups] = useState<Group[]>(getDefaultGroups());
-  
   const [constraints, setConstraints] = useState({
     enforceLoadCapacity: true,
     enforceStacking: false,
@@ -24,16 +28,50 @@ export default function App() {
     enforceLIFO: false,
   });
 
+  // UI State
   const [calculationResult, setCalculationResult] = useState<CalculationResult | null>(null);
   const [usedAlgorithm, setUsedAlgorithm] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Updated handleLogin function to accept credentials object
-  const handleLogin = (credentials: { username: string; password: string }) => {
-    if (credentials.username === 'admin' && credentials.password === 'admin') {
-      setIsAuthenticated(true);
+  useEffect(() => {
+    const storedToken = localStorage.getItem('authToken');
+    if (storedToken) {
+      setToken(storedToken);
     }
+  }, []);
+
+  const handleLogin = async (credentials: { username: string; password: string }) => {
+    try {
+      setIsLoading(true);
+      const receivedToken = await loginUser(credentials);
+      localStorage.setItem('authToken', receivedToken);
+      setToken(receivedToken);
+      setError(null);
+    } catch (err: any) {
+      setError(err.message || 'Login failed');
+      throw err; // Re-throw to be caught in the component
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRegister = async (credentials: { username: string; email: string; password: string }) => {
+    try {
+      await registerUser(credentials);
+      // On successful registration, switch to login page with a success message
+      setAuthPage('login');
+      alert('Registration successful! Please log in.');
+    } catch (err: any) {
+      setError(err.message || 'Registration failed');
+      throw err; // Re-throw to be caught in the component
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('authToken');
+    setToken(null);
+    setPage('data'); // Reset to default page
   };
 
   const handlePresetChange = (presetName: '10ft' | '20ft' | '40ft') => {
@@ -44,46 +82,24 @@ export default function App() {
   };
 
   const handleVisualize = async (algorithm: string, container: Container, currentBoxes: Box[], currentGroups: Group[], currentConstraints: any) => {
+    if (!token) {
+      setError('You must be logged in to perform a calculation.');
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
 
-    const processedBoxes = currentBoxes.map(box => {
-        const newBox: any = { ...box };
-        if (typeof newBox.allowed_rotations === 'string' && newBox.allowed_rotations.trim() !== '') {
-            newBox.allowed_rotations = newBox.allowed_rotations
-                .split(',')
-                .map((s: string) => parseInt(s.trim(), 10))
-                .filter((n: number) => !isNaN(n));
-        } else {
-            delete newBox.allowed_rotations;
-        }
-        return newBox;
-    });
-
     const requestBody = { 
         container, 
-        items: processedBoxes, 
+        items: currentBoxes, 
         groups: currentGroups, 
         algorithm,
         constraints: currentConstraints
     };
-    
-    const apiUrl = 'http://localhost:8080/calculate/golang';
 
     try {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        const response = await fetch(apiUrl, { 
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestBody)
-        });
-
-        const resultData: ApiResponse = await response.json();
-
-        if (!response.ok) {
-            const errorMessage = (resultData as { error: string }).error || 'Unknown server error';
-            throw new Error(`HTTP error! status: ${response.status}, message: ${errorMessage}`);
-        }
+        const resultData: ApiResponse = await postCalculation(requestBody, token);
         
         if ('error' in resultData && resultData.error) {
              throw new Error(`Calculation error from backend: ${resultData.error}`);
@@ -95,15 +111,19 @@ export default function App() {
         setPage('visualization');
 
     } catch (e: any) {
-        console.error("Gagal memanggil API:", e);
-        setError(`Gagal mengambil data dari backend: ${e.message}`);
+        console.error("Failed to call API:", e);
+        setError(`Failed to get data from backend: ${e.message}`);
     } finally {
         setIsLoading(false);
     }
   };
 
-  if (!isAuthenticated) {
-    return <LoginPage onLogin={handleLogin} />;
+  // Render logic
+  if (!token) {
+    if (authPage === 'login') {
+      return <LoginPage onLogin={handleLogin} onSwitchToRegister={() => setAuthPage('register')} />;
+    }
+    return <RegisterPage onRegister={handleRegister} onSwitchToLogin={() => setAuthPage('login')} isLoading={isLoading} />
   }
 
   return (
@@ -111,7 +131,7 @@ export default function App() {
       className="app-container"
       style={page === 'visualization' ? { height: '100vh' } : {}}
     >
-      <Header page={page} setPage={setPage} />
+      <Header page={page} setPage={setPage} onLogout={handleLogout} />
       
       {page === 'data' && (
         <DataCalculationPage 
@@ -139,7 +159,7 @@ export default function App() {
       
       {page === 'visualization' && !calculationResult && (
           <div className="placeholder-container" style={{color: 'white'}}>
-              <p>Tidak ada data untuk divisualisasikan. Silakan kembali ke halaman Data & Calculation.</p>
+              <p>No data to visualize. Please return to the Data & Calculation page.</p>
           </div>
       )}
 
@@ -153,7 +173,7 @@ export default function App() {
       {error && (
         <div className="loading-overlay">
           <div className="error-modal">
-              <h3>Calculation Failed</h3>
+              <h3>Operation Failed</h3>
               <p>{error}</p>
               <button onClick={() => setError(null)}>Close</button>
           </div>
