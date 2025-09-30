@@ -45,3 +45,83 @@ Thumbs.db
 
 # Gradle cache
 **/.gradle/
+
+# Go specific
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go build
+/storage-backend/golang/main
+/storage-backend/golang/*.exe
+/storage-backend/golang/go
+
+# Go mod cache
+**/go.sum.backup
+
+# Go workspace file
+go.work
+
+# Docker specific
+# Docker volumes and data
+docker-data/
+postgres-data/
+.docker/
+
+# Docker compose override files
+docker-compose.override.yml
+docker-compose.*.yml
+!docker-compose.yml
+
+# PostgreSQL specific
+*.sql~
+*.backup
+*.dump
+
+# Logs
+logs/
+*.log
+*.log.*
+
+# JWT and security files
+*.key
+*.pem
+*.crt
+gurobi.lic
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store?
+ehthumbs.db
+Icon?
+
+# Java specific (for XFLP service)
+*.class
+*.jar
+!gradle-wrapper.jar
+**/target/
+*.war
+*.ear
+*.nar
+hs_err_pid*
+
+# Maven
+**/target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
