@@ -1,12 +1,19 @@
 // src/api/index.ts
 
-import { UserCredentials, ApiResponse } from '../types/types';
+import { 
+  UserCredentials, 
+  ApiResponse, 
+  RegisterResponse, 
+  LoginResponse, 
+  CalculationRequest,
+  ErrorResponse 
+} from '../types/types';
 
 const API_BASE_URL = 'http://localhost:8080';
 
 // --- Auth API --- 
 
-export const registerUser = async (credentials: UserCredentials) => {
+export const registerUser = async (credentials: UserCredentials): Promise<RegisterResponse> => {
   const response = await fetch(`${API_BASE_URL}/auth/register`, {
     method: 'POST',
     headers: {
@@ -15,15 +22,15 @@ export const registerUser = async (credentials: UserCredentials) => {
     body: JSON.stringify(credentials),
   });
 
+  const data = await response.json();
   if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.error || 'Registration failed');
+    throw new Error((data as ErrorResponse).error || 'Registration failed');
   }
 
-  return response.json();
+  return data as RegisterResponse;
 };
 
-export const loginUser = async (credentials: UserCredentials) => {
+export const loginUser = async (credentials: UserCredentials): Promise<string> => {
   const response = await fetch(`${API_BASE_URL}/auth/login`, {
     method: 'POST',
     headers: {
@@ -32,18 +39,17 @@ export const loginUser = async (credentials: UserCredentials) => {
     body: JSON.stringify(credentials),
   });
 
+  const data = await response.json();
   if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.error || 'Login failed');
+    throw new Error((data as ErrorResponse).error || 'Login failed');
   }
 
-  const data = await response.json();
-  return data.token;
+  return (data as LoginResponse).token;
 };
 
 // --- Calculation API --- 
 
-export const postCalculation = async (requestBody: any, token: string): Promise<ApiResponse> => {
+export const postCalculation = async (requestBody: CalculationRequest, token: string): Promise<ApiResponse> => {
   const response = await fetch(`${API_BASE_URL}/api/calculate/golang`, {
     method: 'POST',
     headers: {
@@ -53,10 +59,10 @@ export const postCalculation = async (requestBody: any, token: string): Promise<
     body: JSON.stringify(requestBody),
   });
 
+  const data = await response.json();
   if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.error || 'Calculation request failed');
+    throw new Error((data as ErrorResponse).error || 'Calculation request failed');
   }
 
-  return response.json();
+  return data as ApiResponse;
 };

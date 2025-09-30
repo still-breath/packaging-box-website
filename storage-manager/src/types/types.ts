@@ -1,5 +1,6 @@
 // src/types.ts
 
+// --- Model Types ---
 export interface Box {
   id: string;
   quantity: number;
@@ -35,6 +36,46 @@ export interface PlacedBox {
   color: string;
 }
 
+export interface Group {
+  id: string;
+  name: string;
+  color: string;
+}
+
+// --- Request Types ---
+export interface UserCredentials {
+  username: string;
+  password: string;
+  email?: string;
+}
+
+export interface CalculationRequest {
+  container: Container;
+  items: Box[];
+  groups: Group[];
+  algorithm: string;
+  constraints: {
+    enforceLoadCapacity: boolean;
+    enforceStacking: boolean;
+    enforcePriority: boolean;
+    enforceLIFO: boolean;
+  };
+}
+
+// --- Response Types ---
+export interface ErrorResponse {
+  error: string;
+}
+
+export interface RegisterResponse {
+  message: string;
+  user_id: number;
+}
+
+export interface LoginResponse {
+  token: string;
+}
+
 export interface CalculationResult {
   fillRate: number; 
   totalWeight: number; 
@@ -42,16 +83,4 @@ export interface CalculationResult {
   unplacedItems: Box[];
 }
 
-export type ApiResponse = CalculationResult | { error: string };
-
-export interface Group {
-  id: string;
-  name: string;
-  color: string;
-}
-
-export interface UserCredentials {
-  username: string;
-  password: string;
-  email?: string;
-}
+export type ApiResponse = CalculationResult | ErrorResponse;
