@@ -1,6 +1,40 @@
 <div align="center">
-<h1>📦 PACKAGING BOX OPTIMIZER - 3D CONTAINER PACKING SYSTEM</h1>
-<a href="https://github.com/still-breath/packaging-box-optimizer.git">
+<h1>📦 PACKAGING BOX OPTIMIZER - 3D CONTAIN<p align="center">
+<a target="blank" href="https://golang.org/">
+<img height="30" src="https://img.shields.io/badge/Go-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go"/>
+</a>
+<a target="blank" href="https://gin-gonic.com/">
+<img height="30" src="https://img.shields.io/badge/Gin-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Gin"/>
+</a>
+<a target="blank" href="https://www.python.org/">
+<img height="30" src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"/>
+</a>
+<a target="blank" href="https://fastapi.tiangolo.com/">
+<img height="30" src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=FastAPI&logoColor=white" alt="FastAPI"/>
+</a>
+<a target="blank" href="https://www.gurobi.com/">
+<img height="30" src="https://img.shields.io/badge/Gurobi-FF6600?style=for-the-badge&logoColor=white" alt="Gurobi"/>
+</a>
+<a target="blank" href="https://numpy.org/">
+<img height="30" src="https://img.shields.io/badge/NumPy-013243?style=for-the-badge&logo=numpy&logoColor=white" alt="NumPy"/>
+</a>
+</p>T<p align="center">
+<a target="blank" href="https://www.postgresql.org/">
+<img height="30" src="https://img.shields.io/badge/PostgreSQL-336791?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL"/>
+</a>
+<a target="blank" href="https://www.docker.com/">
+<img height="30" src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker"/>
+</a>
+<a target="blank" href="https://pandas.pydata.org/">
+<img height="30" src="https://img.shields.io/badge/Pandas-150458?style=for-the-badge&logo=pandas&logoColor=white" alt="Pandas"/>
+</a>
+<a target="blank" href="https://docs.pydantic.dev/">
+<img height="30" src="https://img.shields.io/badge/Pydantic-E92063?style=for-the-badge&logoColor=white" alt="Pydantic"/>
+</a>
+<a target="blank" href="https://www.uvicorn.org/">
+<img height="30" src="https://img.shields.io/badge/Uvicorn-2B5F3F?style=for-the-badge&logoColor=white" alt="Uvicorn"/>
+</a>
+</p>href="https://github.com/still-breath/packaging-box-optimizer.git">
     <img src="./thumbnail.png" height="300" alt="packaging-box-optimizer">
 </a>
 </div>
@@ -31,13 +65,16 @@
 This project is a **3D container packing optimization system** designed to solve the complex problem of efficiently packing various boxes into containers. The application combines multiple optimization algorithms with **real-time 3D visualization** to provide the best packing solutions for logistics and warehouse management.
 
 ### 🎯 Key Features
-- **Multiple Algorithms**: Various optimization algorithms including Gurobi, Genetic Algorithm, and Heuristic methods
+- **Multiple Algorithms**: Various optimization algorithms including BLF, Genetic Algorithm, and CLPTAC methods
 - **3D Visualization**: Real-time interactive 3D rendering of packing solutions
+- **User Authentication**: JWT-based secure login and registration system
+- **Database Integration**: PostgreSQL database for storing calculations and user data
 - **Container Analysis**: Detailed statistics including fill rate, weight distribution, and space utilization
 - **Group Management**: Organize boxes by categories with color-coded visualization
 - **Performance Metrics**: Calculate efficiency, weight optimization, and space usage
 - **Interactive Controls**: Scene settings with customizable display options
-- **Export Results**: Generate reports and export packing configurations
+- **Microservices Architecture**: Go backend API with Python calculation services
+- **Docker Deployment**: Easy containerized deployment with Docker Compose
 
 This project demonstrates advanced **operations research** techniques combined with modern web technologies for solving real-world logistics optimization problems.
 
@@ -120,8 +157,11 @@ Frameworks, Libraries, and Tools used in this project:
 ## ⚙️ Installation & Usage
 
 ### 📋 Prerequisites
-- Python 3.8 or higher
-- Node.js (LTS version recommended)
+- Docker and Docker Compose (recommended for easy setup)
+- Go 1.19 or higher (if running without Docker)
+- Python 3.8 or higher (if running without Docker)
+- Node.js (LTS version recommended) (if running without Docker)
+- PostgreSQL 13+ (if running without Docker)
 - Git (optional, for repository cloning)
 - Gurobi license (academic license available for free)
 
@@ -130,69 +170,97 @@ Frameworks, Libraries, and Tools used in this project:
 #### 1. Clone Repository
 ```bash
 # Clone the repository
-git clone https://github.com/still-breath/packaging-box-optimizer.git
-cd packaging-box-optimizer
+git clone https://github.com/still-breath/packaging-box-dashboard.git
+cd packaging-box-dashboard
 ```
 
-#### 2. Backend Setup (Python/FastAPI)
+## 🐳 Quick Start with Docker (Recommended)
+
+#### 2. Docker Setup (Easiest Method)
 ```bash
-# Navigate to backend directory
-cd storage-backend/python
+# Build and start all services with Docker Compose
+docker compose up --build
 
-# Create virtual environment
-python -m venv venv
-
-# Activate virtual environment
-# Windows:
-venv\Scripts\activate
-# Linux/macOS:
-source venv/bin/activate
-
-# Install Python dependencies
-pip install -r requirements.txt
+# This will start:
+# - PostgreSQL database (port 5432)
+# - Go backend API (port 8080)
+# - Python calculation service (port 8000)
+# - React frontend (port 3000)
 ```
 
-#### 3. Frontend Setup (React)
+#### 3. Access the Application
+- **Frontend**: http://localhost:3000
+- **Go API**: http://localhost:8080
+- **Python API**: http://localhost:8000
+- **Database**: localhost:5432 (postgres/password)
+
+#### 4. Stop Services
+```bash
+# Stop all containers
+docker compose down
+
+# Stop and remove volumes (reset database)
+docker compose down -v
+```
+
+## 🛠️ Manual Installation (Advanced Users)
+
+#### Alternative: Backend Setup (Go + Python)
+```bash
+# 1. Go Backend Setup
+cd storage-backend/golang
+go mod download
+go run main.go  # Runs on port 8080
+
+# 2. Python Backend Setup (new terminal)
+cd storage-backend/python
+python -m venv venv
+source venv/bin/activate  # Linux/macOS
+# venv\Scripts\activate    # Windows
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
+
+# 3. PostgreSQL Setup
+# Install and configure PostgreSQL
+# Create database 'packaging_db'
+# Set DATABASE_URL environment variable
+```
+
+#### Alternative: Frontend Setup (React)
 ```bash
 # Navigate to frontend directory (new terminal)
 cd storage-manager
 
 # Install Node.js dependencies
 npm install
-# or if using Yarn:
-# yarn install
+
+# Start development server
+npm start  # Runs on port 3000
 ```
 
-#### 4. Gurobi License Setup
+#### 5. Environment Variables
 ```bash
-# For academic users, get free license at:
-# https://www.gurobi.com/academia/academic-program-and-licenses/
-
-# Install license file (gurobi.lic) in your home directory
-# or set GUROBI_LICENSE_FILE environment variable
+# Create .env file in project root (optional)
+DATABASE_URL=postgres://user:password@localhost:5432/packaging_db
+JWT_SECRET_KEY=your-secret-key-here
+PYTHON_BACKEND_URL=http://localhost:8000
 ```
 
 ### 🚀 Usage
 
-#### 1. Start Backend Server
+#### 1. Start All Services (Docker)
 ```bash
-# From storage-backend/python directory with venv activated
-uvicorn main:app --reload --port 8000
+# Start all services with one command
+docker compose up --build
 
-# Server will be available at: http://localhost:8000
+# All services will be available:
+# - Frontend: http://localhost:3000
+# - Go API: http://localhost:8080
+# - Python API: http://localhost:8000
+# - PostgreSQL: localhost:5432
 ```
 
-#### 2. Start Frontend Server
-```bash
-# From storage-manager directory
-npm start
-# or
-yarn start
-
-# Application will open at: http://localhost:3000
-```
-
-#### 3. Using the Application
+#### 2. Using the Application
 1. **Select Container**: Choose preset container or define custom dimensions
 2. **Add Boxes**: Define box groups with dimensions and quantities
 3. **Choose Algorithm**: Select optimization algorithm (Gurobi, Genetic Algorithm, etc.)
@@ -202,21 +270,30 @@ yarn start
 
 ### 📁 Project Structure
 ```
-packaging-box-optimizer/
-├── storage-backend/          # Backend services
-│   └── python/              # FastAPI backend
-│       ├── main.py          # Main FastAPI application
-│       ├── algorithms/      # Optimization algorithms
-│       ├── models/          # Data models
-│       └── requirements.txt # Python dependencies
-├── storage-manager/         # React frontend
-│   ├── src/                 # Source code
-│   │   ├── components/      # React components
-│   │   ├── services/        # API services
-│   │   └── utils/           # Utility functions
-│   ├── public/              # Static assets
-│   └── package.json         # Node.js dependencies
-├── docs/                    # Documentation
+packaging-box-dashboard/
+├── docker-compose.yml       # Docker services configuration
+├── storage-backend/         # Backend services
+│   ├── golang/             # Go/Gin API backend
+│   │   ├── main.go         # Main API server with auth & database
+│   │   ├── go.mod          # Go dependencies
+│   │   └── Dockerfile      # Go service container
+│   ├── python/             # Python calculation service
+│   │   ├── main.py         # FastAPI calculation endpoints
+│   │   ├── blf_service.py  # BLF packing algorithm
+│   │   ├── ga_service.py   # Genetic algorithm service
+│   │   ├── requirements.txt # Python dependencies
+│   │   └── Dockerfile      # Python service container
+│   └── xflp/               # Java XFLP service (optional)
+├── storage-manager/        # React frontend
+│   ├── src/                # Source code
+│   │   ├── components/     # React components
+│   │   ├── api/            # API integration services
+│   │   ├── pages/          # Application pages
+│   │   └── types/          # TypeScript definitions
+│   ├── public/             # Static assets
+│   ├── Dockerfile          # Frontend container
+│   └── package.json        # Node.js dependencies
+├── docs/                   # Documentation
 └── README.md
 ```
 
@@ -296,6 +373,12 @@ When reporting issues, please include:
 - **Request timeout**: Increase timeout limits for complex optimizations
 - **JSON parsing errors**: Validate input data format
 
+#### Docker Issues:
+- **Port conflicts**: Change ports in docker-compose.yml if 3000, 8000, 8080, or 5432 are in use
+- **Build failures**: Run `docker system prune` to clean up space, then rebuild
+- **Database connection**: Ensure PostgreSQL container is healthy before backend starts
+- **Volume issues**: Use `docker compose down -v` to reset database state
+
 #### Frontend Issues:
 - **3D visualization not loading**: Check WebGL support in browser
 - **Build errors**: Clear npm cache and reinstall dependencies
@@ -313,7 +396,7 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 
 <div align="center">
 <h3>🧑‍💻 Syahrul Fathoni Ahmad</h3>
-<p><em>Operations Research Engineer | 3D Visualization Specialist | Logistics Optimization Expert</em></p>
+<p><em>Full-Stack Engineer | 3D Visualization Enthusiast | Python Specialist</em></p>
 
 <p>
 <a target="_blank" href="https://www.linkedin.com/in/syahrulahmad/">
