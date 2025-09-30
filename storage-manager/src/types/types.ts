@@ -1,6 +1,5 @@
 // src/types.ts
 
-// --- Model Types ---
 export interface Box {
   id: string;
   quantity: number;
@@ -10,8 +9,7 @@ export interface Box {
   weight: number;
   group: string;
 
-  // Properti untuk constraint (opsional)
-  allowed_rotations?: number[] | string; // Izinkan string untuk input UI sementara
+  allowed_rotations?: number[] | string;
   max_stack_weight?: number;
   priority?: number;
   destination_group?: number;
