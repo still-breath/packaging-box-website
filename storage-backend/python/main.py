@@ -1,8 +1,12 @@
 # main.py
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
+from passlib.context import CryptContext
+from datetime import datetime, timedelta
+from jose import JWTError, jwt
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 
 # --- Impor semua fungsi service dari file masing-masing ---
 # Pastikan semua file (blf_service.py, clptac_service.py, ga_service.py)
@@ -59,6 +63,21 @@ class ConstraintsModel(BaseModel):
     enforcePriority: bool
     enforceLIFO: bool
 
+class UserBase(BaseModel):
+    username: str
+    email: str
+
+class UserCreate(UserBase):
+    password: str
+
+class User(UserBase):
+    id: int
+    created_at: datetime
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
 class CalculationRequest(BaseModel):
     container: ContainerModel
     items: List[ItemModel]
@@ -90,6 +109,51 @@ async def handle_python_calculation(request: CalculationRequest):
         return {"error": f"Algoritma tidak dikenal: {request.algorithm}"}
 
     return result
+
+# Konfigurasi password hashing
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# Konfigurasi JWT
+SECRET_KEY = "your-secret-key-here"  # Ganti dengan secret key yang aman
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+# Setup OAuth2
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+# Fungsi helper
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+@app.post("/register")
+async def register(user: UserCreate):
+    # TODO: Implementasi penyimpanan ke database
+    # Untuk sementara, kita return success
+    hashed_password = get_password_hash(user.password)
+    return {"message": "User registered successfully"}
+
+@app.post("/token")
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    # TODO: Implementasi validasi user dari database
+    # Untuk sementara, kita return dummy token
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": form_data.username}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
 
 @app.get("/")
 def read_root():
