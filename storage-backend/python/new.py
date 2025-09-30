@@ -4,27 +4,17 @@ import datetime
 import math
 
 def read_timed_thpack(filename):
-    """
-    Membaca file instans dengan format thpack.
-    Baris pertama: dimensi kontainer.
-    Baris berikutnya: dimensi boks dan waktu tiba.
-    Mendukung angka desimal.
-    """
     boxes = {}
     vehicles = {}
     try:
         with open(filename, "r") as f:
-            # Baca dimensi kontainer (baris pertama)
             line = f.readline()
             dims = list(map(float, line.strip().split()))
-            vehicles[1] = tuple(dims)  # Hanya mendukung satu kontainer
-
-            # Baca dimensi boks (baris berikutnya)
+            vehicles[1] = tuple(dims)             
             box_id = 1
             for line in f:
                 if line.strip():
-                    parts = list(map(float, line.strip().split()))
-                    # Format: (panjang, lebar, tinggi, waktu_tiba)
+                    parts = list(map(float, line.strip().split()))                    
                     boxes[box_id] = tuple(parts)
                     box_id += 1
     except FileNotFoundError:
@@ -37,18 +27,16 @@ def read_timed_thpack(filename):
     return boxes, vehicles
 
 
-# Definisi rotasi lengkap untuk fill rate yang lebih tinggi
 rotations = [
-    (0, 1, 2),  # Original
-    (0, 2, 1),  # Rotate around x-axis
-    (1, 0, 2),  # Rotate around z-axis
-    (1, 2, 0),  # Rotate around y-axis
-    (2, 0, 1),  # Rotate around x-axis
-    (2, 1, 0)   # Rotate around z-axis
+    (0, 1, 2),
+    (0, 2, 1),
+    (1, 0, 2),
+    (1, 2, 0),
+    (2, 0, 1),
+    (2, 1, 0)
 ]
 
-def get_valid_rotations(b_dims, Lmax, Wmax, Hmax):
-    """Mendapatkan rotasi valid dengan lebih banyak opsi"""
+def get_valid_rotations(b_dims, Lmax, Wmax, Hmax):   
     valid = []
     for rid, rot in enumerate(rotations):
         if b_dims[rot[0]] <= Lmax and b_dims[rot[1]] <= Wmax and b_dims[rot[2]] <= Hmax:
@@ -57,12 +45,10 @@ def get_valid_rotations(b_dims, Lmax, Wmax, Hmax):
 
 
 def calculate_box_priority(box_id, boxes, container_volume):
-    """Hitung prioritas box berdasarkan volume dan aspect ratio"""
     b_dims = boxes[box_id]
     volume = b_dims[0] * b_dims[1] * b_dims[2]
     volume_ratio = volume / container_volume
-    
-    # Prioritaskan box dengan volume besar dan aspect ratio yang baik
+        
     aspect_penalty = max(b_dims) / min(b_dims) if min(b_dims) > 0 else 1
     priority = volume_ratio / aspect_penalty
     
@@ -70,69 +56,55 @@ def calculate_box_priority(box_id, boxes, container_volume):
 
 
 def solve_clp_with_boxes(boxes, vehicles, output_file, time_limit):
-    """
-    Membuat dan menyelesaikan model optimisasi untuk Container Loading Problem.
-    """
     if not vehicles:
         print("Data kontainer kosong.")
         return
-
-    # Asumsi hanya ada satu kontainer
+    
     k = 1
     v_dims = vehicles[k]
     Lmax, Wmax, Hmax = v_dims[0], v_dims[1], v_dims[2]
     container_volume = Lmax * Wmax * Hmax
 
     box_ids = list(boxes.keys())
-    
-    # Sortir box berdasarkan prioritas untuk fill rate yang lebih baik
+        
     box_priorities = [(i, calculate_box_priority(i, boxes, container_volume)) for i in box_ids]
     box_priorities.sort(key=lambda x: x[1], reverse=True)
     sorted_box_ids = [x[0] for x in box_priorities]
     
     valid_rotations = {i: get_valid_rotations(boxes[i], Lmax, Wmax, Hmax) for i in sorted_box_ids}
-    
-    # Filter box_ids yang punya rotasi valid saja
+        
     box_ids_with_valid = [i for i in sorted_box_ids if len(valid_rotations[i]) > 0]
     
     for i in box_ids:
         print(f"Box {i}: {len(valid_rotations[i])} valid rotation(s)")
         if len(valid_rotations[i]) == 0:
             print(f"  WARNING: Box {i} does not fit in the container in any rotation! Box will be ignored in optimization.")
-
-    # --- Hybrid: fallback ke greedy jika box terlalu banyak ---
-    greedy_threshold = 25  # Turunkan threshold untuk lebih sering menggunakan optimisasi
+    
+    greedy_threshold = 25
     if len(box_ids_with_valid) > greedy_threshold:
         print(f"INFO: Jumlah box {len(box_ids_with_valid)} > {greedy_threshold}. Menggunakan mode greedy placement agar efisien.")
         greedy_clp_placement(boxes, vehicles, output_file)
         return
 
-    try:
-        # --- Membuat Model Gurobi ---
+    try:        
         model = gp.Model("CLP_Python")
-        
-        # Parameter Gurobi yang lebih optimal untuk fill rate tinggi
-        model.setParam("MIPFocus", 1)  # Focus on finding good feasible solutions
-        model.setParam("Heuristics", 0.8)  # Increase heuristics
+                
+        model.setParam("MIPFocus", 1)
+        model.setParam("Heuristics", 0.8)
         model.setParam("Presolve", 2)
-        model.setParam("Cuts", 2)  # Aggressive cuts
-        model.setParam("MIPGap", 0.01)  # Allow 1% gap for faster solving
+        model.setParam("Cuts", 2)
+        model.setParam("MIPGap", 0.01)
         model.setParam("TimeLimit", time_limit)
-        model.setParam("Threads", 4)  # Use multiple threads
-
-        # --- Variabel ---
-        # p[i,k] = 1 jika boks i masuk ke kontainer k
+        model.setParam("Threads", 4)
+        
         p = model.addVars(box_ids_with_valid, [k], vtype=GRB.BINARY, name="p")
 
-        # x[i], y[i], z[i] = koordinat pojok kiri bawah boks i
         x = model.addVars(box_ids_with_valid, lb=0, ub=Lmax, name="x")
         y = model.addVars(box_ids_with_valid, lb=0, ub=Wmax, name="y")
         z = model.addVars(box_ids_with_valid, lb=0, ub=Hmax, name="z")
 
-        # r[i,rot] = 1 jika boks i menggunakan rotasi rot
         r = model.addVars(box_ids_with_valid, range(len(rotations)), vtype=GRB.BINARY, name="r")
 
-        # Variabel untuk non-overlapping constraints
         a, b, c, d, e, f = {}, {}, {}, {}, {}, {}
         for i in box_ids_with_valid:
             for j in box_ids_with_valid:
@@ -144,15 +116,13 @@ def solve_clp_with_boxes(boxes, vehicles, output_file, time_limit):
                     e[i, j] = model.addVar(vtype=GRB.BINARY, name=f"e_{i}_{j}")
                     f[i, j] = model.addVar(vtype=GRB.BINARY, name=f"f_{i}_{j}")
 
-        # --- Fungsi Tujuan: Maksimalkan Volume yang Terisi dengan Weighted Priority ---
+
         total_volume = gp.quicksum(
             p[i, k] * boxes[i][0] * boxes[i][1] * boxes[i][2] * (1 + 0.1 * calculate_box_priority(i, boxes, container_volume))
             for i in box_ids_with_valid
         )
         model.setObjective(total_volume, GRB.MAXIMIZE)
 
-        # --- Batasan (Constraints) ---
-        # Boundary constraints with rotation
         for i in box_ids_with_valid:
             b_dims = boxes[i]
             for rid, rot in valid_rotations[i]:
@@ -207,11 +177,9 @@ def solve_clp_with_boxes(boxes, vehicles, output_file, time_limit):
                     model.addConstr(
                         a[i, j] + b[i, j] + c[i, j] + d[i, j] + e[i, j] + f[i, j] >= p[i, k] + p[j, k] - 1
                     )
-
-        # --- Optimisasi ---
+    
         model.optimize()
 
-        # --- Tulis Hasil ke File ---
         if model.Status == GRB.OPTIMAL or model.Status == GRB.TIME_LIMIT:
             with open(output_file, "w") as f_out:
                 f_out.write(
@@ -221,7 +189,6 @@ def solve_clp_with_boxes(boxes, vehicles, output_file, time_limit):
                 packed_volume = 0
                 packed_boxes = 0
                 for i in box_ids_with_valid:
-                    # Periksa apakah boks i masuk ke dalam kontainer
                     if p[i, k].X > 0.99:
                         rot_idx = max(range(len(rotations)), key=lambda rid: r[i, rid].X if rid in [v[0] for v in valid_rotations[i]] else -1)
                         rot = rotations[rot_idx]
@@ -240,7 +207,7 @@ def solve_clp_with_boxes(boxes, vehicles, output_file, time_limit):
                 mean_volume_used = (
                     (packed_volume / container_volume) if container_volume > 0 else 0
                 )
-                fill_rate = mean_volume_used * 100  # dalam persen
+                fill_rate = mean_volume_used * 100
 
                 f_out.write(f"\nVehicles used: 1\n")
                 f_out.write(f"Boxes packed: {packed_boxes}/{len(box_ids_with_valid)}\n")
@@ -261,10 +228,6 @@ def solve_clp_with_boxes(boxes, vehicles, output_file, time_limit):
         print(f"Terjadi error: {e}")
 
 def greedy_clp_placement(boxes, vehicles, output_file):
-    """
-    Penempatan box secara greedy yang lebih cerdas dengan multiple passes
-    untuk meningkatkan fill rate hingga 85%+
-    """
     if not vehicles:
         print("Data kontainer kosong.")
         return
@@ -276,13 +239,12 @@ def greedy_clp_placement(boxes, vehicles, output_file):
     
     box_ids = list(boxes.keys())
     
-    # Sortir box berdasarkan volume (descending) untuk better packing
     box_volumes = [(i, boxes[i][0] * boxes[i][1] * boxes[i][2]) for i in box_ids]
     box_volumes.sort(key=lambda x: x[1], reverse=True)
     sorted_box_ids = [x[0] for x in box_volumes]
     
-    placed_boxes = []  # List of dict: {id, x, y, z, rot, dims}
-    occupied = []  # List of (x, y, z, l, w, h)
+    placed_boxes = []
+    occupied = []
 
     def is_overlap(x1, y1, z1, l1, w1, h1, x2, y2, z2, l2, w2, h2):
         return not (
@@ -291,16 +253,14 @@ def greedy_clp_placement(boxes, vehicles, output_file):
             z1 + h1 <= z2 or z2 + h2 <= z1
         )
 
-    def get_support_area(x, y, z, l, w, h):
-        """Hitung area dukungan untuk box pada posisi tertentu"""
+    def get_support_area(x, y, z, l, w, h):        
         support_area = 0
-        if z == 0:  # Bottom of container
+        if z == 0:
             support_area = l * w
         else:
             for ob in occupied:
                 ox, oy, oz, ol, ow, oh = ob
-                if abs(oz + oh - z) < 0.01:  # Same level
-                    # Calculate intersection area
+                if abs(oz + oh - z) < 0.01:                    
                     x_overlap = max(0, min(x + l, ox + ol) - max(x, ox))
                     y_overlap = max(0, min(y + w, oy + ow) - max(y, oy))
                     support_area += x_overlap * y_overlap
@@ -309,8 +269,7 @@ def greedy_clp_placement(boxes, vehicles, output_file):
     def find_best_position(b_dims, rot):
         """Cari posisi terbaik untuk box dengan rotasi tertentu"""
         l, w, h = b_dims[rot[0]], b_dims[rot[1]], b_dims[rot[2]]
-        
-        # Generate candidate positions
+                
         candidates = [(0, 0, 0)]  # Bottom-left-back corner
         
         # Add positions based on existing boxes
@@ -341,12 +300,12 @@ def greedy_clp_placement(boxes, vehicles, output_file):
         def position_score(pos):
             x, y, z = pos
             support = get_support_area(x, y, z, l, w, h)
-            return (-support, z, y, x)  # Negative support for descending order
+            return (-support, z, y, x)
         
         valid_candidates.sort(key=position_score)
         return valid_candidates[0]
 
-    # Multiple passes untuk meningkatkan fill rate
+    # Multiple passes for using fill rate
     remaining_boxes = sorted_box_ids.copy()
     
     for pass_num in range(3):  # 3 passes
@@ -420,11 +379,10 @@ def greedy_clp_placement(boxes, vehicles, output_file):
     print(f"Boxes packed: {len(placed_boxes)}/{len(box_ids)}")
 
 if __name__ == "__main__":
-    # --- Konfigurasi ---
     input_file = "../datasets/10ft.txt"
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     output_file = f"solusi_20ft_python_{timestamp}.txt"
-    time_limit = 600  # Batas waktu optimisasi dalam detik (10 menit)
+    time_limit = 600
 
     print(f"Membaca file instans: {input_file}")
     boxes, vehicles = read_timed_thpack(input_file)
