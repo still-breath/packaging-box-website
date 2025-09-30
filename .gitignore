@@ -39,3 +39,9 @@ Thumbs.db
 *.ntvs*
 *.njsproj
 *.sln
+
+# Database data
+.db-data/
+
+# Gradle cache
+**/.gradle/

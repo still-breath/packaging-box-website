@@ -68,7 +68,7 @@ export default function App() {
         constraints: currentConstraints
     };
     
-    const apiUrl = 'http://localhost:8000/calculate/python';
+    const apiUrl = 'http://localhost:8080/calculate/golang';
 
     try {
         await new Promise(resolve => setTimeout(resolve, 500));
