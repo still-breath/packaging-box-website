@@ -34,7 +34,7 @@
 <a target="blank" href="https://www.uvicorn.org/">
 <img height="30" src="https://img.shields.io/badge/Uvicorn-2B5F3F?style=for-the-badge&logoColor=white" alt="Uvicorn"/>
 </a>
-</p>href="https://github.com/still-breath/packaging-box-website.git">
+</a>href="https://github.com/still-breath/packaging-box-website.git">
     <img src="./thumbnail.png" height="300" alt="packaging-box-website">
 </a>
 </div>
@@ -88,15 +88,16 @@ Frameworks, Libraries, and Tools used in this project:
 <a target="_blank" href="https://reactjs.org/">
 <img height="30" src="https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" alt="React"/>
 </a>
+<a target="_blank" href="https://golang.org/">
+<img height="30" src="https://img.shields.io/badge/Go-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go"/>
+</a>
 <a target="_blank" href="https://threejs.org/">
 <img height="30" src="https://img.shields.io/badge/Three.js-000000?style=for-the-badge&logo=three.js&logoColor=white" alt="Three.js"/>
 </a>
 <a target="_blank" href="https://www.typescriptlang.org/">
 <img height="30" src="https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript"/>
 </a>
-<a target="_blank" href="https://vitejs.dev/">
-<img height="30" src="https://img.shields.io/badge/Vite-B73BFE?style=for-the-badge&logo=vite&logoColor=FFD62E" alt="Vite"/>
-</a>
+
 </p>
 
 <p align="center">
@@ -109,22 +110,6 @@ Frameworks, Libraries, and Tools used in this project:
 <a target="_blank" href="https://www.gurobi.com/">
 <img height="30" src="https://img.shields.io/badge/Gurobi-FF6600?style=for-the-badge&logoColor=white" alt="Gurobi"/>
 </a>
-<a target="_blank" href="https://numpy.org/">
-<img height="30" src="https://img.shields.io/badge/NumPy-013243?style=for-the-badge&logo=numpy&logoColor=white" alt="NumPy"/>
-</a>
-</p>
-
-<p align="center">
-<a target="_blank" href="https://pandas.pydata.org/">
-<img height="30" src="https://img.shields.io/badge/Pandas-150458?style=for-the-badge&logo=pandas&logoColor=white" alt="Pandas"/>
-</a>
-<a target="_blank" href="https://docs.pydantic.dev/">
-<img height="30" src="https://img.shields.io/badge/Pydantic-E92063?style=for-the-badge&logoColor=white" alt="Pydantic"/>
-</a>
-<a target="_blank" href="https://www.uvicorn.org/">
-<img height="30" src="https://img.shields.io/badge/Uvicorn-2B5F3F?style=for-the-badge&logoColor=white" alt="Uvicorn"/>
-</a>
-</p>
 
 ---
 
@@ -158,8 +143,8 @@ Frameworks, Libraries, and Tools used in this project:
 
 ### 📋 Prerequisites
 - Docker and Docker Compose (recommended for easy setup)
-- Go 1.19 or higher (if running without Docker)
-- Python 3.8 or higher (if running without Docker)
+- Go 1.23 or higher (if running without Docker)
+- Python 3.9 or higher (if running without Docker)
 - Node.js (LTS version recommended) (if running without Docker)
 - PostgreSQL 13+ (if running without Docker)
 - Git (optional, for repository cloning)
@@ -170,8 +155,8 @@ Frameworks, Libraries, and Tools used in this project:
 #### 1. Clone Repository
 ```bash
 # Clone the repository
-git clone https://github.com/still-breath/packaging-box-dashboard.git
-cd packaging-box-dashboard
+git clone https://github.com/still-breath/packaging-box-website.git
+cd packaging-box-website
 ```
 
 ## 🐳 Quick Start with Docker (Recommended)
