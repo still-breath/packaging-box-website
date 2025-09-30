@@ -1,13 +1,11 @@
 // src/data.ts
 import { Container, Box, Group } from './types/types';
 
-// Mendefinisikan tipe untuk preset
 type Preset = {
   container: Container;
   boxes: Box[];
 };
 
-// Data untuk setiap jenis kontainer berdasarkan tabel Anda (dalam cm)
 const containerData: { [key: string]: Container } = {
   '10ft': {
     width: 234,
@@ -29,8 +27,6 @@ const containerData: { [key: string]: Container } = {
   },
 };
 
-// Data untuk setiap jenis box berdasarkan tabel Anda (dalam cm)
-// Urutan dimensi: Panjang, Tinggi, Lebar
 const allBoxesData = [
     { name: 'Box Rokok', dims: { length: 38, height: 41, width: 53 }, weight: 26.4, quantities: { '10ft': 15, '20ft': 35, '40ft': 70 } },
     { name: 'Box Sparepart 1', dims: { length: 53, height: 76, width: 53 }, weight: 20, quantities: { '10ft': 15, '20ft': 35, '40ft': 70 } },
@@ -42,7 +38,6 @@ const allBoxesData = [
     { name: 'Box Dispenser Air', dims: { length: 61, height: 56, width: 61 }, weight: 17, quantities: { '10ft': 25, '20ft': 50, '40ft': 90 } },
 ];
 
-// Fungsi untuk menghasilkan daftar box berdasarkan jenis kontainer
 const getBoxesForPreset = (preset: '10ft' | '20ft' | '40ft'): Box[] => {
     return allBoxesData.map((box, index) => ({
         id: `box-${index + 1}`,
@@ -51,11 +46,10 @@ const getBoxesForPreset = (preset: '10ft' | '20ft' | '40ft'): Box[] => {
         width: box.dims.width,
         height: box.dims.height,
         weight: box.weight,
-        group: box.name, // Menggunakan nama box sebagai grup default
+        group: box.name, 
     }));
 };
 
-// Gabungkan semua data ke dalam satu objek preset yang diekspor
 export const presets: { [key: string]: Preset } = {
   '10ft': {
     container: containerData['10ft'],
@@ -71,7 +65,6 @@ export const presets: { [key: string]: Preset } = {
   },
 };
 
-// Membuat grup default dari nama-nama box
 export const getDefaultGroups = (): Group[] => {
     const colors = ['#A95E90', '#6C6C9E', '#3E8E7E', '#E4A84F', '#D1603D', '#A44A3F', '#4A442D', '#5E4B56'];
     return allBoxesData.map((box, index) => ({
