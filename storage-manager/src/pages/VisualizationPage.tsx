@@ -3,7 +3,6 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { CalculationResult, Group, Container, PlacedBox } from '../types/types'; 
 import Container3DView from '../components/Container3DView';
 
-// Komponen PieChart dan CustomToggle tidak berubah
 const PieChart = ({ percentage }: { percentage: number }) => {
     const radius = 50;
     const circumference = 2 * Math.PI * radius;
@@ -65,7 +64,7 @@ const VisualizationPage = ({
             }, {} as { [id: string]: boolean });
             setVisibleItems(initialVisibility);
         }
-    }, [result.placedItems]); // Dependensi array memastikan ini berjalan saat placedItems berubah.
+    }, [result.placedItems]);
 
     const colorToGroupMap = useMemo(() => initialGroups.reduce((acc, group) => {
         if (group?.color) {
@@ -82,7 +81,6 @@ const VisualizationPage = ({
         );
     }
     
-    // Fungsi dan kalkulasi lainnya didefinisikan setelah guard clause
     const toggleItemVisibility = (itemId: string) => {
         setVisibleItems(prev => ({ ...prev, [itemId]: !prev[itemId] }));
     };
@@ -102,7 +100,6 @@ const VisualizationPage = ({
 
     return (
         <div className="page-container">
-            {/* Sidebar Kiri */}
             <div className="sidebar">
                 <div className="card">
                     <h3 className="card-title">{formatAlgorithmName(algorithm)}</h3>
@@ -158,7 +155,6 @@ const VisualizationPage = ({
                 </div>
             </div>
 
-            {/* Canvas Utama */}
             <div className="viz-canvas-container">
                 <Container3DView 
                     items={result.placedItems} 
@@ -168,7 +164,6 @@ const VisualizationPage = ({
                 />
             </div>
 
-            {/* Sidebar Kanan */}
             <div className="viz-sidebar-right">
                 <h3 className="card-title" style={{color: 'white'}}>SCENE SETTINGS</h3>
                 <div className="sidebar-section">
