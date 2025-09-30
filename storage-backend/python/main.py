@@ -7,15 +7,10 @@ from passlib.context import CryptContext
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-
-# --- Impor semua fungsi service dari file masing-masing ---
-# Pastikan semua file (blf_service.py, clptac_service.py, ga_service.py)
-# berada di direktori yang sama dengan main.py
 from blf_service import run_blf_packing
 from clptac_service import run_clp_packing
 from ga_service import run_ga_packing
 
-# Inisialisasi aplikasi FastAPI
 app = FastAPI(
     title="Storage Box API",
     description="API for storage box optimization with authentication",
@@ -26,11 +21,10 @@ app = FastAPI(
 def read_root():
     return {"status": "ok", "message": "Storage Box API is running"}
 
-# Konfigurasi CORS untuk mengizinkan permintaan dari frontend React Anda
 origins = [
-    "http://localhost:3000", # Alamat default untuk create-react-app
+    "http://localhost:3000",
     "http://localhost:3001",
-    "http://localhost:5173", # Alamat default untuk Vite
+    "http://localhost:5173",
 ]
 app.add_middleware(
     CORSMiddleware,
@@ -40,7 +34,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Model Data Pydantic untuk Validasi Request ---
 class ContainerModel(BaseModel):
     length: float
     width: float
@@ -99,9 +92,6 @@ class CalculationRequest(BaseModel):
 
 @app.post("/calculate/python")
 async def handle_python_calculation(request: CalculationRequest):
-    """
-    Menerima permintaan kalkulasi dan memanggil fungsi service yang sesuai.
-    """
     container_dict = request.container.dict()
     items_list = [item.dict() for item in request.items]
     groups_list = [group.dict() for group in request.groups]
@@ -122,18 +112,16 @@ async def handle_python_calculation(request: CalculationRequest):
 
     return result
 
-# Konfigurasi password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# Konfigurasi JWT
-SECRET_KEY = "your-secret-key-here"  # Ganti dengan secret key yang aman
+
+SECRET_KEY = "your-secret-key-here"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 # Setup OAuth2
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-# Fungsi helper
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
@@ -158,9 +146,6 @@ async def register(user_data: UserCreate):
             return {"detail": "Missing required fields"}, 400
             
         hashed_password = get_password_hash(user_data.password)
-        # TODO: Save to database
-        
-        # Return success response
         return {
             "status": "success",
             "user": {
@@ -176,7 +161,6 @@ async def register(user_data: UserCreate):
 @app.post("/auth/login")
 async def login(login_data: LoginRequest):
     try:
-        # TODO: Validate against database
         if not login_data.username or not login_data.password:
             return {"detail": "Missing username or password"}, 400
             
@@ -194,7 +178,7 @@ async def login(login_data: LoginRequest):
             "token_type": "bearer",
             "user": {
                 "username": login_data.username,
-                "email": "dummy@email.com"  # Will be replaced with DB data
+                "email": "dummy@email.com"
             }
         }
     except Exception as e:
