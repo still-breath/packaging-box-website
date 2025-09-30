@@ -2,20 +2,29 @@
 import React, { useState } from 'react';
 
 interface LoginPageProps {
-  onLogin: (credentials: { username: string; password: string }) => void;
+  onLogin: (credentials: { username: string; password: string }) => Promise<void>;
+  onSwitchToRegister: () => void;
 }
 
-const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
+const LoginPage: React.FC<LoginPageProps> = ({ onLogin, onSwitchToRegister }) => {
   const [username, setUsername] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [error, setError] = useState<string>('');
+  const [loading, setLoading] = useState<boolean>(false);
 
-  const handleLogin = (): void => {
-    if (username === 'admin' && password === 'admin') {
-      onLogin({ username, password });
-      setError('');
-    } else {
+  const handleLogin = async (): Promise<void> => {
+    if (!username || !password) {
       setError('Invalid username or password');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      await onLogin({ username, password });
+    } catch (err: any) {
+      setError(err.message || 'Login failed. Please check your credentials.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -25,34 +34,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
     }
   };
 
-  const handleInputFocus = (e: React.FocusEvent<HTMLInputElement>): void => {
-    const target = e.target as HTMLInputElement;
-    target.style.borderColor = '#D9383E';
-    target.style.backgroundColor = 'white';
-    target.style.boxShadow = '0 0 0 3px rgba(217, 56, 62, 0.1)';
-  };
-
-  const handleInputBlur = (e: React.FocusEvent<HTMLInputElement>): void => {
-    const target = e.target as HTMLInputElement;
-    target.style.borderColor = '#e5e7eb';
-    target.style.backgroundColor = '#f9fafb';
-    target.style.boxShadow = 'none';
-  };
-
-  const handleButtonMouseEnter = (e: React.MouseEvent<HTMLButtonElement>): void => {
-    const target = e.target as HTMLButtonElement;
-    target.style.backgroundColor = '#c12e33';
-    target.style.transform = 'translateY(-1px)';
-    target.style.boxShadow = '0 4px 8px rgba(217, 56, 62, 0.3)';
-  };
-
-  const handleButtonMouseLeave = (e: React.MouseEvent<HTMLButtonElement>): void => {
-    const target = e.target as HTMLButtonElement;
-    target.style.backgroundColor = '#D9383E';
-    target.style.transform = 'translateY(0)';
-    target.style.boxShadow = '0 2px 4px rgba(217, 56, 62, 0.2)';
-  };
-
+  // Inline styles from the original component for consistency
   const containerStyle: React.CSSProperties = {
     minHeight: '100vh',
     backgroundColor: '#1f2937',
@@ -70,19 +52,6 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
     borderRadius: '12px',
     boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 10px 15px -3px rgba(0, 0, 0, 0.1)',
     textAlign: 'center'
-  };
-
-  const logoStyle: React.CSSProperties = {
-    width: '80px',
-    height: '80px',
-    borderRadius: '12px',
-    margin: '0 auto 1.5rem',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '2rem',
-    fontWeight: 'bold',
-    color: 'white'
   };
 
   const inputStyle: React.CSSProperties = {
@@ -108,51 +77,25 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
     borderRadius: '8px',
     cursor: 'pointer',
     transition: 'all 0.2s ease',
-    boxShadow: '0 2px 4px rgba(217, 56, 62, 0.2)'
+    opacity: loading ? 0.6 : 1,
   };
 
   return (
     <div style={containerStyle}>
       <div style={cardStyle}>
-        {/* Logo dan Header */}
         <div style={{ marginBottom: '2rem' }}>
-          <div style={logoStyle}>
-            <img src="/favicon-96x96.png" alt="logo" />
-          </div>
-          <h1 style={{
-            fontSize: '2rem',
-            fontWeight: '700',
-            color: '#1f2937',
-            margin: '0 0 0.5rem 0'
-          }}>
+           <img src="/favicon-96x96.png" alt="logo" style={{ margin: '0 auto 1.5rem' }}/>
+          <h1 style={{ fontSize: '2rem', fontWeight: '700', color: '#1f2937', margin: '0 0 0.5rem 0' }}>
             STORAGE MANAGER
           </h1>
-          <p style={{
-            color: '#6b7280',
-            fontSize: '1rem',
-            margin: '0 0 0.5rem 0'
-          }}>
-            Welcome back!
-          </p>
-          <p style={{
-            color: '#9ca3af',
-            fontSize: '0.875rem',
-            margin: '0'
-          }}>
-            Enter your credentials to access the dashboard
+          <p style={{ color: '#6b7280', fontSize: '1rem', margin: '0' }}>
+            Welcome back! Enter your credentials.
           </p>
         </div>
 
-        {/* Form */}
         <div style={{ textAlign: 'left' }}>
           <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{
-              display: 'block',
-              fontSize: '0.875rem',
-              fontWeight: '600',
-              color: '#374151',
-              marginBottom: '0.5rem'
-            }}>
+            <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '600', color: '#374151', marginBottom: '0.5rem' }}>
               Username
             </label>
             <input 
@@ -161,19 +104,11 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
               onChange={(e) => setUsername(e.target.value)} 
               placeholder="Enter your username"
               style={inputStyle}
-              onFocus={handleInputFocus}
-              onBlur={handleInputBlur}
             />
           </div>
 
           <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{
-              display: 'block',
-              fontSize: '0.875rem',
-              fontWeight: '600',
-              color: '#374151',
-              marginBottom: '0.5rem'
-            }}>
+            <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '600', color: '#374151', marginBottom: '0.5rem' }}>
               Password
             </label>
             <input 
@@ -183,25 +118,11 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
               onKeyPress={handleKeyPress}
               placeholder="Enter your password"
               style={inputStyle}
-              onFocus={handleInputFocus}
-              onBlur={handleInputBlur}
             />
           </div>
 
           {error && (
-            <div style={{
-              backgroundColor: '#fef2f2',
-              border: '1px solid #fecaca',
-              color: '#dc2626',
-              padding: '0.75rem 1rem',
-              borderRadius: '6px',
-              fontSize: '0.875rem',
-              marginBottom: '1.5rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem'
-            }}>
-              <span>⚠️</span>
+            <div style={{ backgroundColor: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', padding: '0.75rem 1rem', borderRadius: '6px', fontSize: '0.875rem', marginBottom: '1.5rem' }}>
               {error}
             </div>
           )}
@@ -209,28 +130,20 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
           <button 
             onClick={handleLogin}
             style={buttonStyle}
-            onMouseEnter={handleButtonMouseEnter}
-            onMouseLeave={handleButtonMouseLeave}
+            disabled={loading}
           >
-            Sign In
+            {loading ? 'Signing In...' : 'Sign In'}
           </button>
         </div>
 
-        {/* Footer */}
-        <div style={{
-          marginTop: '2rem',
-          paddingTop: '1.5rem',
-          borderTop: '1px solid #e5e7eb',
-          fontSize: '0.75rem',
-          color: '#9ca3af',
-          textAlign: 'center'
-        }}>
-          <div style={{ marginBottom: '0.25rem' }}>
-            Default credentials: admin / admin
-          </div>
-          <div>
-            Secure access to your storage management system
-          </div>
+        <div style={{ marginTop: '2rem', fontSize: '0.875rem', color: '#6b7280' }}>
+          Don't have an account?{' '}
+          <span 
+            onClick={onSwitchToRegister} 
+            style={{ color: '#D9383E', fontWeight: '600', cursor: 'pointer' }}
+          >
+            Sign Up
+          </span>
         </div>
       </div>
     </div>
