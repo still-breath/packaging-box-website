@@ -1,5 +1,14 @@
 <div align="center">
 <h1>📦 PACKAGING BOX OPTIMIZER - 3D CONTAINER<p align="center">
+<a target="blank" href="https://golang.org/">
+<img height="30" src="https://img.shields.io/badge/Go-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go"/>
+</a>
+<a target="_blank" href="https://reactjs.org/">
+<img height="30" src="https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" alt="React"/>
+</a>
+<a target="blank" href="https://www.python.org/">
+<img height="30" src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"/>
+</a>
 </a>
     <img src="./thumbnail.png" height="300" alt="packaging-box-website">
 </a>
