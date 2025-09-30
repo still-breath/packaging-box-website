@@ -130,7 +130,6 @@ const DataCalculationPage = ({
       <div className="main-content">
         <div className="card">
           <h3 className="card-title">BOXES TO LOAD ({boxes.length})</h3>
-          {/* PERBAIKAN: Menggunakan class 'box-grid' baru dan menghapus col-span */}
           <div className="box-grid box-grid-header">
               <div>Qty</div>
               <div>Dimensions (L,W,H)</div>
