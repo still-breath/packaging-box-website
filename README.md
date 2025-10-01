@@ -1,15 +1,6 @@
 <div align="center">
 <h1>📦 PACKAGING BOX OPTIMIZER - 3D CONTAINER<p align="center">
-<a target="blank" href="https://g### 📋 Prerequisites
-- Docker and Docker Compose (recommended for easy setup)
-- Go 1.19 or higher (if running without Docker)
-- Python 3.8 or higher (if running without Docker)
-- Node.js (LTS version recommended) (if running without Docker)
-- PostgreSQL 13+ (if running without Docker)
-- Git (optional, for repository cloning)
-
-### 🔐 Security Notice
-**⚠️ This repository requires security setup before running. See [SETUP.md](SETUP.md) for required configuration.**g/">
+<a target="blank" href="https://golang.org/">
 <img height="30" src="https://img.shields.io/badge/Go-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go"/>
 </a>
 <a target="_blank" href="https://reactjs.org/">
@@ -145,17 +136,7 @@ cd packaging-box-website
 
 ## 🐳 Quick Start with Docker (Recommended)
 
-#### 2. Security Setup (REQUIRED)
-```bash
-# Copy template files and configure secrets
-cp .env.example .env
-cp docker-compose.yml.example docker-compose.yml
-
-# Edit .env with your secure passwords and keys
-# See SETUP.md for detailed instructions
-```
-
-#### 3. Docker Setup (After Security Config)
+#### 2. Docker Setup (Easiest Method)
 ```bash
 # Build and start all services with Docker Compose
 docker compose up --build
@@ -167,13 +148,13 @@ docker compose up --build
 # - React frontend (port 3000)
 ```
 
-#### 4. Access the Application
+#### 3. Access the Application
 - **Frontend**: http://localhost:3000
 - **Go API**: http://localhost:8080
 - **Python API**: http://localhost:8000
-- **Database**: localhost:5432 (your configured credentials)
+- **Database**: localhost:5432 (postgres/password)
 
-#### 5. Stop Services
+#### 4. Stop Services
 ```bash
 # Stop all containers
 docker compose down
@@ -181,8 +162,6 @@ docker compose down
 # Stop and remove volumes (reset database)
 docker compose down -v
 ```
-
-> **📖 Need help with setup?** See [SETUP.md](SETUP.md) for detailed security configuration instructions.
 
 ## 🛠️ Manual Installation (Advanced Users)
 
@@ -219,14 +198,11 @@ npm install
 npm start  # Runs on port 3000
 ```
 
-#### 6. Environment Variables (Manual Setup)
+#### 5. Environment Variables
 ```bash
-# Copy template and configure (REQUIRED)
-cp .env.example .env
-
-# Edit .env with your actual secrets:
-DATABASE_URL=postgres://your_user:your_password@localhost:5432/packaging_db
-JWT_SECRET_KEY=your_secure_32_char_minimum_secret_key
+# Create .env file in project root (optional)
+DATABASE_URL=postgres://user:password@localhost:5432/packaging_db
+JWT_SECRET_KEY=your-secret-key-here
 PYTHON_BACKEND_URL=http://localhost:8000
 ```
 
