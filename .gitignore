@@ -22,11 +22,17 @@ yarn-error.log*
 **/build/
 **/dist/
 
-# File environment
-# Jangan pernah mengunggah file .env yang berisi kredensial atau kunci API
+# Environment files - NEVER commit these
 .env
 .env.local
 .env.*.local
+.env.production
+.env.staging
+.env.development
+
+# Docker Compose - use .example versions
+docker-compose.yml
+docker-compose.override.yml
 
 # File spesifik sistem operasi
 .DS_Store

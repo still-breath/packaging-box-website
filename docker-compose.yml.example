@@ -5,9 +5,9 @@ services:
     container_name: packaging_db
     restart: always
     environment:
-      POSTGRES_DB: packaging_db
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "5432:5432"
     volumes:
@@ -21,6 +21,8 @@ services:
     command: uvicorn main:app --host 0.0.0.0 --port 8000
     ports:
       - "8000:8000"
+    environment:
+      SECRET_KEY: ${PYTHON_SECRET_KEY}
 
   go-backend:
     build:
@@ -30,8 +32,8 @@ services:
     ports:
       - "8080:8080"
     environment:
-      DATABASE_URL: "postgres://user:password@db:5432/packaging_db"
-      JWT_SECRET_KEY: "your-super-secret-key-change-me"
+      DATABASE_URL: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}"
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
       PYTHON_BACKEND_URL: "http://python-backend:8000/calculate/python"
     depends_on:
       - db
@@ -49,12 +51,9 @@ services:
 
   adminer:
     image: adminer
-    container_name: adminer
+    container_name: packaging_adminer
     restart: always
     ports:
-      - "8081:8080"
+      - "8080:8080"
     depends_on:
       - db
-
-volumes:
-  db-data:

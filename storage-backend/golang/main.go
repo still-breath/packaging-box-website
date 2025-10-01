@@ -85,7 +85,7 @@ type Claims struct {
 func connectDB() *pgxpool.Pool {
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "postgres://user:password@db:5432/packaging_db" // Use service name 'db' for docker-compose
+		log.Fatal("DATABASE_URL environment variable is required. Please set it in your .env file or environment.")
 	}
 
 	pool, err := pgxpool.Connect(context.Background(), dbURL)
@@ -693,8 +693,7 @@ func authMiddleware() gin.HandlerFunc {
 
 func main() {
 	if os.Getenv("JWT_SECRET_KEY") == "" {
-		log.Println("Warning: JWT_SECRET_KEY is not set. Using a default value. Please set this in your environment.")
-		jwtKey = []byte("default-secret-key-for-dev")
+		log.Fatal("JWT_SECRET_KEY environment variable is required. Please set it in your .env file or environment. It should be at least 32 characters long for security.")
 	}
 
 	dbPool := connectDB()
