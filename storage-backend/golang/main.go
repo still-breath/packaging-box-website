@@ -137,7 +137,33 @@ func setupDatabase(pool *pgxpool.Pool) {
 	}
 	log.Println("'containers' table is ready.")
 
-	// Create Items Table
+	// Create Item Groups Table (MUST be created before items table)
+	createItemGroupsTable := `
+	CREATE TABLE IF NOT EXISTS item_groups (
+		id SERIAL PRIMARY KEY,
+		name VARCHAR(255) UNIQUE NOT NULL,
+		color VARCHAR(50) NOT NULL,
+		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+	);`
+	_, err = pool.Exec(context.Background(), createItemGroupsTable)
+	if err != nil {
+		log.Fatalf("Failed to create item_groups table: %v\n", err)
+	}
+
+	// Insert default item group (check if exists first)
+	var defaultExists int
+	err = pool.QueryRow(context.Background(), "SELECT COUNT(*) FROM item_groups WHERE name = 'default';").Scan(&defaultExists)
+	if err == nil && defaultExists == 0 {
+		defaultGroupSQL := `INSERT INTO item_groups (name, color) VALUES ('default', '#808080');`
+		_, err = pool.Exec(context.Background(), defaultGroupSQL)
+		if err != nil {
+			log.Printf("Failed to insert default item group: %v", err)
+		}
+	}
+
+	log.Println("'item_groups' table is ready.")
+
+	// Create Items Table (MUST be created after item_groups table)
 	createItemsTable := `
 	CREATE TABLE IF NOT EXISTS items (
 		id SERIAL PRIMARY KEY,
@@ -192,32 +218,6 @@ func setupDatabase(pool *pgxpool.Pool) {
 
 	log.Println("'items' table is ready.")
 
-	// Create Item Groups Table
-	createItemGroupsTable := `
-	CREATE TABLE IF NOT EXISTS item_groups (
-		id SERIAL PRIMARY KEY,
-		name VARCHAR(255) UNIQUE NOT NULL,
-		color VARCHAR(50) NOT NULL,
-		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-	);`
-	_, err = pool.Exec(context.Background(), createItemGroupsTable)
-	if err != nil {
-		log.Fatalf("Failed to create item_groups table: %v\n", err)
-	}
-
-	// Insert default item group (check if exists first)
-	var defaultExists int
-	err = pool.QueryRow(context.Background(), "SELECT COUNT(*) FROM item_groups WHERE name = 'default';").Scan(&defaultExists)
-	if err == nil && defaultExists == 0 {
-		defaultGroupSQL := `INSERT INTO item_groups (name, color) VALUES ('default', '#808080');`
-		_, err = pool.Exec(context.Background(), defaultGroupSQL)
-		if err != nil {
-			log.Printf("Failed to insert default item group: %v", err)
-		}
-	}
-
-	log.Println("'item_groups' table is ready.")
-
 	// Create Calculation Requests Table
 	createCalculationRequestsTable := `
 	CREATE TABLE IF NOT EXISTS calculation_requests (
@@ -270,24 +270,7 @@ func setupDatabase(pool *pgxpool.Pool) {
 	}
 	log.Println("'placed_items' table is ready.")
 
-	// Create Groups Table (This was missing, causing an error)
-	createGroupsTable := `
-	CREATE TABLE IF NOT EXISTS groups (
-		id SERIAL PRIMARY KEY,
-		calculation_id INTEGER REFERENCES calculation_requests(id),
-		group_id_string VARCHAR(255) NOT NULL,
-		name VARCHAR(255) NOT NULL,
-		color VARCHAR(50) NOT NULL,
-		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-	);`
-
-	_, err = pool.Exec(context.Background(), createGroupsTable)
-	if err != nil {
-		log.Fatalf("Failed to create groups table: %v\n", err)
-	}
-	log.Println("'groups' table is ready.")
-
-	// Create Constraints Table (was missing)
+	// Create Constraints Table (MUST be created before calculations)
 	createConstraintsTable := `
 	CREATE TABLE IF NOT EXISTS constraints (
 		id SERIAL PRIMARY KEY,
@@ -303,7 +286,7 @@ func setupDatabase(pool *pgxpool.Pool) {
 	}
 	log.Println("'constraints' table is ready.")
 
-	// Create Calculations Table (was missing)
+	// Create Calculations Table (MUST be created before groups)
 	createCalculationsTable := `
 	CREATE TABLE IF NOT EXISTS calculations (
 		id SERIAL PRIMARY KEY,
@@ -318,6 +301,23 @@ func setupDatabase(pool *pgxpool.Pool) {
 		log.Fatalf("Failed to create calculations table: %v\n", err)
 	}
 	log.Println("'calculations' table is ready.")
+
+	// Create Groups Table (references calculations table)
+	createGroupsTable := `
+	CREATE TABLE IF NOT EXISTS groups (
+		id SERIAL PRIMARY KEY,
+		calculation_id INTEGER REFERENCES calculations(id),
+		group_id_string VARCHAR(255) NOT NULL,
+		name VARCHAR(255) NOT NULL,
+		color VARCHAR(50) NOT NULL,
+		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+	);`
+
+	_, err = pool.Exec(context.Background(), createGroupsTable)
+	if err != nil {
+		log.Fatalf("Failed to create groups table: %v\n", err)
+	}
+	log.Println("'groups' table is ready.")
 }
 
 // --- Password & JWT Helpers ---
