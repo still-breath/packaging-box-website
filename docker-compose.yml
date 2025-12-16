@@ -1,0 +1,63 @@
+version: '3.8'
+services:
+  db:
+    image: postgres:13
+    container_name: packaging_db
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./.db-data:/var/lib/postgresql/data
+
+  python-backend:
+    build:
+      context: ./storage-backend/python
+    container_name: python_backend
+    restart: always
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    environment:
+      SECRET_KEY: ${PYTHON_SECRET_KEY}
+
+  go-backend:
+    build:
+      context: ./storage-backend/golang
+    container_name: go_backend
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}"
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      PYTHON_BACKEND_URL: "http://python-backend:8000/calculate/python"
+    depends_on:
+      - db
+      - python-backend
+    dns:
+      - 1.1.1.1
+      - 1.0.0.1
+
+
+  frontend:
+    build:
+      context: ./storage-manager
+    container_name: frontend
+    restart: always
+    ports:
+      - "3000:3000"
+    depends_on:
+      - go-backend
+
+  adminer:
+    image: adminer
+    container_name: packaging_adminer
+    restart: always
+    ports:
+      - "8081:8080"
+    depends_on:
+      - db
