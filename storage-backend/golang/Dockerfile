@@ -4,6 +4,11 @@ FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
+# Set Go proxy to use Google's proxy with fallback
+ENV GOPROXY=https://proxy.golang.org,direct
+ENV GOSUMDB=sum.golang.org
+ENV GOTIMEOUT=60s
+
 # Copy go.mod and go.sum files and download dependencies
 COPY go.mod ./
 RUN go mod download
