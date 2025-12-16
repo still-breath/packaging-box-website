@@ -100,11 +100,23 @@ func connectDB() *pgxpool.Pool {
 // --- Database Setup ---
 
 func setupDatabase(pool *pgxpool.Pool) {
-	// Drop existing table to start fresh (optional, for development)
-	// _, err := pool.Exec(context.Background(), "DROP TABLE IF EXISTS calculation_history, items, groups, calculations, constraints, containers, users;")
-	// if err != nil {
-	// 	log.Fatalf("Failed to drop tables: %v\n", err)
-	// }
+	_, err := pool.Exec(context.Background(), `
+		DROP TABLE IF EXISTS placed_items CASCADE;
+		DROP TABLE IF EXISTS calculation_results CASCADE;
+		DROP TABLE IF EXISTS calculation_requests CASCADE;
+		DROP TABLE IF EXISTS groups CASCADE;
+		DROP TABLE IF EXISTS items CASCADE;
+		DROP TABLE IF EXISTS calculations CASCADE;
+		DROP TABLE IF EXISTS constraints CASCADE;
+		DROP TABLE IF EXISTS containers CASCADE;
+		DROP TABLE IF EXISTS item_groups CASCADE;
+		DROP TABLE IF EXISTS users CASCADE;
+	`)
+	if err != nil {
+		log.Printf("Warning: Failed to drop tables: %v\n", err)
+	} else {
+		log.Println("Successfully dropped all existing tables.")
+	}
 
 	// Create Users Table
 	createUsersTable := `
@@ -114,7 +126,7 @@ func setupDatabase(pool *pgxpool.Pool) {
 		password_hash VARCHAR(255) NOT NULL, 
 		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 	);`
-	_, err := pool.Exec(context.Background(), createUsersTable)
+	_, err = pool.Exec(context.Background(), createUsersTable)
 	if err != nil {
 		log.Fatalf("Failed to create users table: %v\n", err)
 	}
@@ -539,10 +551,15 @@ func handleGoCalculation(db *pgxpool.Pool) gin.HandlerFunc {
 			return
 		}
 
+		algorithm := requestData.Algorithm
+		if algorithm == "golang" {
+			algorithm = "PYTHON_BLF"
+		}
+
 		// 3. Insert Calculation
 		var calculationID int
 		calculationSQL := `INSERT INTO calculations (user_id, container_id, constraints_id, algorithm) VALUES ($1, $2, $3, $4) RETURNING id;`
-		err = tx.QueryRow(context.Background(), calculationSQL, userID, containerID, constraintsID, requestData.Algorithm).Scan(&calculationID)
+		err = tx.QueryRow(context.Background(), calculationSQL, userID, containerID, constraintsID, algorithm).Scan(&calculationID)
 		if err != nil {
 			log.Printf("Failed to insert calculation: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save calculation data."})
@@ -603,13 +620,8 @@ func handleGoCalculation(db *pgxpool.Pool) gin.HandlerFunc {
 			}
 		}
 
-		// All inserts successful, commit the transaction
-		err = tx.Commit(context.Background())
-		if err != nil {
-			log.Printf("Failed to commit transaction: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to finalize database transaction."})
-			return
-		}
+		// Use the mapped algorithm for Python backend call
+		requestData.Algorithm = algorithm
 
 		log.Printf("Saved new calculation with ID: %d for user ID: %d", calculationID, userID)
 
@@ -728,9 +740,6 @@ func main() {
 	{
 		apiRoutes.POST("/calculate/golang", handleGoCalculation(dbPool))
 	}
-
-	// Legacy route for now, should be deprecated
-	// router.POST("/calculate/golang", handleGoCalculation(dbPool))
 
 	log.Println("Go server starting on port 8080...")
 	router.Run(":8080")
