@@ -2,6 +2,7 @@ import gurobipy as gp
 from gurobipy import GRB
 import datetime
 import math
+import random
 
 def read_timed_thpack(filename):
     boxes = {}
@@ -227,7 +228,92 @@ def solve_clp_with_boxes(boxes, vehicles, output_file, time_limit):
     except Exception as e:
         print(f"Terjadi error: {e}")
 
-def greedy_clp_placement(boxes, vehicles, output_file):
+def _compact_placed_boxes(placed_boxes, occupied, Lmax, Wmax, Hmax):
+    """Attempt to compact placed boxes towards origin (0,0,0) without overlap.
+    Modifies placed_boxes and occupied in place."""
+    # Helper to check overlap
+    def is_overlap(x1, y1, z1, l1, w1, h1, x2, y2, z2, l2, w2, h2):
+        return not (
+            x1 + l1 <= x2 or x2 + l2 <= x1 or
+            y1 + w1 <= y2 or y2 + w2 <= y1 or
+            z1 + h1 <= z2 or z2 + h2 <= z1
+        )
+
+    # Try for each box to move it towards origin along x, then y, then z
+    for pb in placed_boxes:
+        changed = True
+        while changed:
+            changed = False
+            # try move left (decrease x)
+            best_x = pb['x']
+            for nx in range(int(pb['x']) - 1, -1, -1):
+                collision = False
+                for ob in occupied:
+                    if ob is pb:
+                        continue
+                # check overlaps with existing occupied boxes
+                for ob in occupied:
+                    if ob is pb:
+                        continue
+                    if is_overlap(nx, pb['y'], pb['z'], pb['dims'][0], pb['dims'][1], pb['dims'][2], ob[0], ob[1], ob[2], ob[3], ob[4], ob[5]):
+                        collision = True
+                        break
+                if collision:
+                    break
+                best_x = nx
+            if best_x < pb['x']:
+                # update occupied and pb
+                for idx, ob in enumerate(occupied):
+                    if ob[0] == pb['x'] and ob[1] == pb['y'] and ob[2] == pb['z'] and ob[3] == pb['dims'][0] and ob[4] == pb['dims'][1] and ob[5] == pb['dims'][2]:
+                        occupied[idx] = (best_x, ob[1], ob[2], ob[3], ob[4], ob[5])
+                        break
+                pb['x'] = best_x
+                changed = True
+
+            # try move front (decrease y)
+            best_y = pb['y']
+            for ny in range(int(pb['y']) - 1, -1, -1):
+                collision = False
+                for ob in occupied:
+                    if ob is pb:
+                        continue
+                    if is_overlap(pb['x'], ny, pb['z'], pb['dims'][0], pb['dims'][1], pb['dims'][2], ob[0], ob[1], ob[2], ob[3], ob[4], ob[5]):
+                        collision = True
+                        break
+                if collision:
+                    break
+                best_y = ny
+            if best_y < pb['y']:
+                for idx, ob in enumerate(occupied):
+                    if ob[0] == pb['x'] and ob[1] == pb['y'] and ob[2] == pb['z'] and ob[3] == pb['dims'][0] and ob[4] == pb['dims'][1] and ob[5] == pb['dims'][2]:
+                        occupied[idx] = (ob[0], best_y, ob[2], ob[3], ob[4], ob[5])
+                        break
+                pb['y'] = best_y
+                changed = True
+
+            # try move down (decrease z)
+            best_z = pb['z']
+            for nz in range(int(pb['z']) - 1, -1, -1):
+                collision = False
+                for ob in occupied:
+                    if ob is pb:
+                        continue
+                    if is_overlap(pb['x'], pb['y'], nz, pb['dims'][0], pb['dims'][1], pb['dims'][2], ob[0], ob[1], ob[2], ob[3], ob[4], ob[5]):
+                        collision = True
+                        break
+                if collision:
+                    break
+                best_z = nz
+            if best_z < pb['z']:
+                for idx, ob in enumerate(occupied):
+                    if ob[0] == pb['x'] and ob[1] == pb['y'] and ob[2] == pb['z'] and ob[3] == pb['dims'][0] and ob[4] == pb['dims'][1] and ob[5] == pb['dims'][2]:
+                        occupied[idx] = (ob[0], ob[1], best_z, ob[3], ob[4], ob[5])
+                        break
+                pb['z'] = best_z
+                changed = True
+
+
+def greedy_clp_placement(boxes, vehicles, output_file, restarts: int = 5):
     if not vehicles:
         print("Data kontainer kosong.")
         return
@@ -238,13 +324,23 @@ def greedy_clp_placement(boxes, vehicles, output_file):
     container_volume = Lmax * Wmax * Hmax
     
     box_ids = list(boxes.keys())
-    
+
     box_volumes = [(i, boxes[i][0] * boxes[i][1] * boxes[i][2]) for i in box_ids]
     box_volumes.sort(key=lambda x: x[1], reverse=True)
-    sorted_box_ids = [x[0] for x in box_volumes]
-    
-    placed_boxes = []
-    occupied = []
+    base_sorted_box_ids = [x[0] for x in box_volumes]
+
+    best_solution = None
+    best_fill = -1.0
+
+    for attempt in range(max(1, restarts)):
+        # Slight randomization between restarts to explore different packings
+        sorted_box_ids = base_sorted_box_ids.copy()
+        if attempt > 0:
+            # perform a small shuffle to break ties / explore alternatives
+            random.shuffle(sorted_box_ids)
+
+        placed_boxes = []
+        occupied = []
 
     def is_overlap(x1, y1, z1, l1, w1, h1, x2, y2, z2, l2, w2, h2):
         return not (
@@ -305,8 +401,8 @@ def greedy_clp_placement(boxes, vehicles, output_file):
         valid_candidates.sort(key=position_score)
         return valid_candidates[0]
 
-    # Multiple passes for using fill rate
-    remaining_boxes = sorted_box_ids.copy()
+        # Multiple passes for using fill rate
+        remaining_boxes = sorted_box_ids.copy()
     
     for pass_num in range(3):  # 3 passes
         print(f"Greedy pass {pass_num + 1}: {len(remaining_boxes)} boxes remaining")
@@ -356,25 +452,45 @@ def greedy_clp_placement(boxes, vehicles, output_file):
         if not boxes_to_remove:
             break  # No more boxes can be placed
 
-    # Output
+        # After a run, apply compaction to tighten packing
+        try:
+            _compact_placed_boxes(placed_boxes, occupied, Lmax, Wmax, Hmax)
+        except Exception:
+            pass
+
+        # Evaluate fill
+        packed_volume = sum(pb['dims'][0] * pb['dims'][1] * pb['dims'][2] for pb in placed_boxes)
+        mean_volume_used = (packed_volume / container_volume) if container_volume > 0 else 0
+        fill_rate = mean_volume_used * 100
+
+        if fill_rate > best_fill:
+            best_fill = fill_rate
+            best_solution = (placed_boxes.copy(), occupied.copy())
+
+    # Write best solution to file
+    if best_solution is None:
+        best_solution = ([], [])
+
+    placed_boxes, occupied = best_solution
+
     with open(output_file, "w") as f_out:
         f_out.write(f"Vehicle 1. Dimensions ({v_dims[0]}, {v_dims[1]}, {v_dims[2]}).\n\n")
-        
+
         packed_volume = 0
         for pb in placed_boxes:
             f_out.write(f"{pb['id']} \t {pb['x']:.2f} \t {pb['y']:.2f} \t {pb['z']:.2f} \t {pb['dims'][0]:.2f}\t {pb['dims'][1]:.2f}\t {pb['dims'][2]:.2f}\t NA\n")
             packed_volume += pb['dims'][0] * pb['dims'][1] * pb['dims'][2]
-        
+
         mean_volume_used = (packed_volume / container_volume) if container_volume > 0 else 0
         fill_rate = mean_volume_used * 100
-        
+
         f_out.write(f"\nVehicles used: 1\n")
         f_out.write(f"Boxes packed: {len(placed_boxes)}/{len(box_ids)}\n")
         f_out.write(f"Mean volume used per vehicle: {mean_volume_used:.4f}\n")
         f_out.write(f"Fill rate: {fill_rate:.2f}%\n")
-        f_out.write(f"Greedy placement mode (enhanced)\n")
-        
-    print(f"Enhanced greedy solution written to {output_file}")
+        f_out.write(f"Greedy placement mode (enhanced) - best of {restarts} restarts\n")
+
+    print(f"Enhanced greedy best solution written to {output_file}")
     print(f"Fill rate: {fill_rate:.2f}%")
     print(f"Boxes packed: {len(placed_boxes)}/{len(box_ids)}")
 
