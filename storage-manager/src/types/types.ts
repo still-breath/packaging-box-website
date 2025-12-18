@@ -79,6 +79,7 @@ export interface CalculationResult {
   totalWeight: number; 
   placedItems: PlacedBox[];
   unplacedItems: Box[];
+  logs?: string[];
 }
 
 export type ApiResponse = CalculationResult | ErrorResponse;

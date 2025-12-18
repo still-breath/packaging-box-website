@@ -10,6 +10,7 @@ import {
 } from '../types/types';
 
 const API_BASE_URL = 'http://localhost:8080';
+const PY_API_BASE_URL = 'http://localhost:8000';
 
 // --- Auth API --- 
 
@@ -65,4 +66,25 @@ export const postCalculation = async (requestBody: CalculationRequest, token: st
   }
 
   return data as ApiResponse;
+};
+
+export const importExcel = async (file: File): Promise<any> => {
+  const fd = new FormData();
+  fd.append('file', file);
+  const resp = await fetch(`${PY_API_BASE_URL}/import/excel`, {
+    method: 'POST',
+    body: fd
+  });
+  if (!resp.ok) throw new Error('Failed to import excel');
+  return await resp.json();
+};
+
+export const exportExcel = async (payload: any): Promise<Blob> => {
+  const resp = await fetch(`${PY_API_BASE_URL}/export/excel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) throw new Error('Failed to export excel');
+  return await resp.blob();
 };
