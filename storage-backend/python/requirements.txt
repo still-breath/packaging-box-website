@@ -7,3 +7,5 @@ gurobipy
 passlib[bcrypt]
 python-jose[cryptography]
 python-multipart
+pandas
+openpyxl
