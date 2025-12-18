@@ -2,9 +2,17 @@
 from typing import List, Dict
 from clptac import CLPContainer, CLPBox, solve_clp_with_gurobi, solve_clp_with_greedy
 
-def run_clp_packing(container_data: Dict, items_data: List[Dict], groups_data: List[Dict], constraints: Dict) -> Dict:
+def run_clp_packing(container_data: Dict, items_data: List[Dict], groups_data: List[Dict], constraints: Dict, on_log=None, stop_event=None) -> Dict:
+
+    def safe_log(msg: str):
+        try:
+            if on_log:
+                on_log(msg)
+        except Exception:
+            pass
 
     try:
+        safe_log("CLPTAC: preparing data...")
         container = CLPContainer(
             length=container_data['length'],
             width=container_data['width'],
@@ -31,17 +39,32 @@ def run_clp_packing(container_data: Dict, items_data: List[Dict], groups_data: L
                 boxes.append(new_box)
                 box_map[current_box_id] = {"group": item['group']}
 
-        # LOGIKA HYBRID: Pilih algoritma berdasarkan jumlah boks
-        greedy_threshold = 20
-        solution = solve_clp_with_gurobi(container, boxes, constraints, time_limit=600)
+        greedy_threshold = 50
+        safe_log(f"CLPTAC: {len(boxes)} boxes, selecting solver...")
+
+        # cooperative cancellation: check stop_event before heavy solver
+        if stop_event and stop_event.is_set():
+            safe_log("CLPTAC: cancelled before solving")
+            return {"error": "Cancelled by user"}
+
+        # Choose solver: use greedy for large instances to avoid very long Gurobi runs
+        try:
+            if len(boxes) > greedy_threshold:
+                safe_log(f"CLPTAC: using GREEDY solver (threshold={greedy_threshold})")
+                solution = solve_clp_with_greedy(container, boxes, constraints)
+            else:
+                safe_log("CLPTAC: using GUROBI solver")
+                # set a moderate time limit for Gurobi to keep responsiveness
+                time_limit = 120 if len(boxes) <= greedy_threshold else 600
+                solution = solve_clp_with_gurobi(container, boxes, constraints, time_limit=time_limit)
+        except Exception as e:
+            safe_log(f"CLPTAC: solver raised exception: {e}")
+            return {"error": str(e)}
         
-        # if len(boxes) > greedy_threshold:
-        #     print(f"INFO: Jumlah box ({len(boxes)}) > {greedy_threshold}. Menggunakan mode GREEDY.")
-        #     solution = solve_clp_with_greedy(container, boxes, constraints)
-        # else:
-        #     print(f"INFO: Jumlah box ({len(boxes)}) <= {greedy_threshold}. Menggunakan mode GUROBI.")
-        #     solution = solve_clp_with_gurobi(container, boxes, constraints, time_limit=30)
-        
+        if stop_event and stop_event.is_set():
+            safe_log("CLPTAC: cancelled during solving")
+            return {"error": "Cancelled by user"}
+
         if not solution or "error" in solution:
             return solution or {"error": "Algoritma tidak mengembalikan solusi."}
 
@@ -76,6 +99,7 @@ def run_clp_packing(container_data: Dict, items_data: List[Dict], groups_data: L
 
         fill_rate = (total_volume / container.volume * 100) if container.volume > 0 else 0
         
+        safe_log("CLPTAC: solver finished, preparing result")
         return {
             "fillRate": fill_rate, "totalWeight": total_weight,
             "placedItems": placed_items, "unplacedItems": unplaced_items

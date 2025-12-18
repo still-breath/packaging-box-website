@@ -481,7 +481,8 @@ def enhanced_solve_clp_with_boxes(boxes_dict: Dict, vehicles_dict: Dict,
 def enhanced_greedy_clp_placement(boxes_dict: Dict, vehicles_dict: Dict, output_file: str,
                                  container: CLPContainer = None, 
                                  boxes: List[CLPBox] = None, 
-                                 constraints: Dict = None):
+                                 constraints: Dict = None,
+                                 restarts: int = 5):
     """
     Enhanced greedy placement with flexible constraints
     """
@@ -538,178 +539,262 @@ def enhanced_greedy_clp_placement(boxes_dict: Dict, vehicles_dict: Dict, output_
         
         return base_score
     
-    sorted_box_ids = sorted(box_ids, key=enhanced_box_score, reverse=True)
-    
-    placed_boxes = []
-    occupied = []
-    total_weight = 0
+    base_sorted_box_ids = sorted(box_ids, key=enhanced_box_score, reverse=True)
 
-    def is_overlap(x1, y1, z1, l1, w1, h1, x2, y2, z2, l2, w2, h2):
-        return not (
-            x1 + l1 <= x2 or x2 + l2 <= x1 or
-            y1 + w1 <= y2 or y2 + w2 <= y1 or
-            z1 + h1 <= z2 or z2 + h2 <= z1
-        )
+    import random
 
-    def get_support_area(x, y, z, l, w, h):
-        if z == 0:
-            return l * w
-        
-        support_area = 0
-        for ox, oy, oz, ol, ow, oh in occupied:
-            if abs(oz + oh - z) < 0.01:
-                x_overlap = max(0, min(x + l, ox + ol) - max(x, ox))
-                y_overlap = max(0, min(y + w, oy + ow) - max(y, oy))
-                support_area += x_overlap * y_overlap
-        return support_area
+    def _compact_placed_boxes(placed_boxes, occupied, Lmax, Wmax, Hmax):
+        """Compact placed boxes towards origin to reduce fragmentation."""
+        def is_overlap(x1, y1, z1, l1, w1, h1, x2, y2, z2, l2, w2, h2):
+            return not (
+                x1 + l1 <= x2 or x2 + l2 <= x1 or
+                y1 + w1 <= y2 or y2 + w2 <= y1 or
+                z1 + h1 <= z2 or z2 + h2 <= z1
+            )
 
-    def get_corner_distance(x, y, z):
-        """Distance from bottom-left-back corner (prefer corner placement)"""
-        return math.sqrt(x*x + y*y + z*z)
-
-    def check_stacking_constraint(box_obj, x, y, z, l, w, h):
-        """Check if stacking constraint is satisfied"""
-        if not constraints.get('enforceStacking', False) or box_obj.max_stack_weight >= float('inf'):
-            return True
-        
-        # Calculate weight of boxes that would be stacked on top
-        weight_above = 0
         for pb in placed_boxes:
-            # Check if pb is above current box
-            if (pb['z'] > z + h and
-                not (pb['x'] + pb['dims'][0] <= x or x + l <= pb['x'] or
-                     pb['y'] + pb['dims'][1] <= y or y + w <= pb['y'])):
-                weight_above += boxes[pb['id'] - 1].weight
-        
-        return weight_above <= box_obj.max_stack_weight
-
-    def find_best_positions(b_dims, rot, box_obj, num_positions=10):
-        """Find multiple good positions and return the best one"""
-        l, w, h = b_dims[rot[0]], b_dims[rot[1]], b_dims[rot[2]]
-        
-        # Generate more candidate positions
-        candidates = [(0, 0, 0)]
-        
-        # Grid-based positions for better coverage
-        step_x = max(1, Lmax // 10)
-        step_y = max(1, Wmax // 10)
-        step_z = max(1, Hmax // 10)
-        
-        for x in range(0, int(Lmax - l + 1), int(step_x)):
-            for y in range(0, int(Wmax - w + 1), int(step_y)):
-                for z in range(0, int(Hmax - h + 1), int(step_z)):
-                    candidates.append((x, y, z))
-        
-        # Add positions based on existing boxes
-        for pb in placed_boxes:
-            candidates.extend([
-                (pb['x'] + pb['dims'][0], pb['y'], pb['z']),
-                (pb['x'], pb['y'] + pb['dims'][1], pb['z']),
-                (pb['x'], pb['y'], pb['z'] + pb['dims'][2]),
-                (pb['x'] + pb['dims'][0], pb['y'] + pb['dims'][1], pb['z']),
-                (pb['x'] + pb['dims'][0], pb['y'], pb['z'] + pb['dims'][2]),
-                (pb['x'], pb['y'] + pb['dims'][1], pb['z'] + pb['dims'][2])
-            ])
-
-        valid_candidates = []
-        for x, y, z in candidates:
-            if (x + l <= Lmax and y + w <= Wmax and z + h <= Hmax and
-                not any(is_overlap(x, y, z, l, w, h, *ob) for ob in occupied)):
-                
-                support = get_support_area(x, y, z, l, w, h)
-                corner_dist = get_corner_distance(x, y, z)
-                stability = support / (l * w) if l * w > 0 else 0
-                
-                score = (support, -corner_dist, -z, stability)
-                valid_candidates.append((x, y, z, score))
-        
-        if not valid_candidates:
-            return None
-            
-        # Sort by score and return best position
-        valid_candidates.sort(key=lambda x: x[3], reverse=True)
-        return valid_candidates[0][:3]
-
-    # Multi-pass placement with different strategies
-    remaining_boxes = sorted_box_ids.copy()
+            moved = True
+            while moved:
+                moved = False
+                # try x
+                for nx in range(int(pb['x']) - 1, -1, -1):
+                    coll = False
+                    for ob in occupied:
+                        if ob[0] == pb['x'] and ob[1] == pb['y'] and ob[2] == pb['z']:
+                            continue
+                        if is_overlap(nx, pb['y'], pb['z'], pb['dims'][0], pb['dims'][1], pb['dims'][2], ob[0], ob[1], ob[2], ob[3], ob[4], ob[5]):
+                            coll = True
+                            break
+                    if coll:
+                        break
+                    pb['x'] = nx
+                    moved = True
+                # try y
+                for ny in range(int(pb['y']) - 1, -1, -1):
+                    coll = False
+                    for ob in occupied:
+                        if ob[0] == pb['x'] and ob[1] == pb['y'] and ob[2] == pb['z']:
+                            continue
+                        if is_overlap(pb['x'], ny, pb['z'], pb['dims'][0], pb['dims'][1], pb['dims'][2], ob[0], ob[1], ob[2], ob[3], ob[4], ob[5]):
+                            coll = True
+                            break
+                    if coll:
+                        break
+                    pb['y'] = ny
+                    moved = True
+                # try z
+                for nz in range(int(pb['z']) - 1, -1, -1):
+                    coll = False
+                    for ob in occupied:
+                        if ob[0] == pb['x'] and ob[1] == pb['y'] and ob[2] == pb['z']:
+                            continue
+                        if is_overlap(pb['x'], pb['y'], nz, pb['dims'][0], pb['dims'][1], pb['dims'][2], ob[0], ob[1], ob[2], ob[3], ob[4], ob[5]):
+                            coll = True
+                            break
+                    if coll:
+                        break
+                    pb['z'] = nz
+                    moved = True
     
-    for pass_num in range(4):  # 4 passes for better fill rate
-        print(f"Enhanced greedy pass {pass_num + 1}: {len(remaining_boxes)} boxes remaining")
-        
-        if pass_num == 1:
-            # Sort by smallest dimension first
-            remaining_boxes.sort(key=lambda i: min(boxes_dict[i][:3]))
-        elif pass_num == 2:
-            # Sort by aspect ratio (prefer cubic shapes)
-            remaining_boxes.sort(key=lambda i: max(boxes_dict[i][:3])/min(boxes_dict[i][:3]))
-        elif pass_num == 3:
-            # Sort by volume density
-            remaining_boxes.sort(key=lambda i: boxes_dict[i][0]*boxes_dict[i][1]*boxes_dict[i][2], reverse=True)
-        
-        boxes_to_remove = []
-        
-        for i in remaining_boxes:
-            b_dims = boxes_dict[i]
-            best_pos = None
-            best_rot = None
-            best_score = -1
+    best_solution = None
+    best_fill = -1.0
+
+    # perform multiple restarts to improve packing
+    for attempt in range(max(1, restarts)):
+        if attempt == 0:
+            sorted_box_ids = base_sorted_box_ids.copy()
+        else:
+            sorted_box_ids = base_sorted_box_ids.copy()
+            random.shuffle(sorted_box_ids)
+
+        placed_boxes = []
+        occupied = []
+        total_weight = 0
+        def is_overlap(x1, y1, z1, l1, w1, h1, x2, y2, z2, l2, w2, h2):
+            return not (
+                x1 + l1 <= x2 or x2 + l2 <= x1 or
+                y1 + w1 <= y2 or y2 + w2 <= y1 or
+                z1 + h1 <= z2 or z2 + h2 <= z1
+            )
+
+        def get_support_area(x, y, z, l, w, h):
+            if z == 0:
+                return l * w
             
-            # Try all valid rotations
-            valid_rots = get_valid_rotations(b_dims, Lmax, Wmax, Hmax)
+            support_area = 0
+            for ox, oy, oz, ol, ow, oh in occupied:
+                if abs(oz + oh - z) < 0.01:
+                    x_overlap = max(0, min(x + l, ox + ol) - max(x, ox))
+                    y_overlap = max(0, min(y + w, oy + ow) - max(y, oy))
+                    support_area += x_overlap * y_overlap
+            return support_area
+
+        def get_corner_distance(x, y, z):
+            """Distance from bottom-left-back corner (prefer corner placement)"""
+            return math.sqrt(x*x + y*y + z*z)
+
+        def check_stacking_constraint(box_obj, x, y, z, l, w, h):
+            """Check if stacking constraint is satisfied"""
+            if not constraints.get('enforceStacking', False) or box_obj.max_stack_weight >= float('inf'):
+                return True
             
-            for rid, rot in valid_rots:
-                pos_result = find_best_positions(b_dims, rot, boxes[i - 1])
-                if pos_result:
-                    x, y, z = pos_result
-                    l, w, h = b_dims[rot[0]], b_dims[rot[1]], b_dims[rot[2]]
+            # Calculate weight of boxes that would be stacked on top
+            weight_above = 0
+            for pb in placed_boxes:
+                # Check if pb is above current box
+                if (pb['z'] > z + h and
+                    not (pb['x'] + pb['dims'][0] <= x or x + l <= pb['x'] or
+                         pb['y'] + pb['dims'][1] <= y or y + w <= pb['y'])):
+                    weight_above += boxes[pb['id'] - 1].weight
+            
+            return weight_above <= box_obj.max_stack_weight
+
+        def find_best_positions(b_dims, rot, box_obj, num_positions=10):
+            """Find multiple good positions and return the best one"""
+            l, w, h = b_dims[rot[0]], b_dims[rot[1]], b_dims[rot[2]]
+            
+            # Generate more candidate positions
+            candidates = [(0, 0, 0)]
+            
+            # Grid-based positions for better coverage
+            step_x = max(1, Lmax // 10)
+            step_y = max(1, Wmax // 10)
+            step_z = max(1, Hmax // 10)
+            
+            for x in range(0, int(Lmax - l + 1), int(step_x)):
+                for y in range(0, int(Wmax - w + 1), int(step_y)):
+                    for z in range(0, int(Hmax - h + 1), int(step_z)):
+                        candidates.append((x, y, z))
+            
+            # Add positions based on existing boxes
+            for pb in placed_boxes:
+                candidates.extend([
+                    (pb['x'] + pb['dims'][0], pb['y'], pb['z']),
+                    (pb['x'], pb['y'] + pb['dims'][1], pb['z']),
+                    (pb['x'], pb['y'], pb['z'] + pb['dims'][2]),
+                    (pb['x'] + pb['dims'][0], pb['y'] + pb['dims'][1], pb['z']),
+                    (pb['x'] + pb['dims'][0], pb['y'], pb['z'] + pb['dims'][2]),
+                    (pb['x'], pb['y'] + pb['dims'][1], pb['z'] + pb['dims'][2])
+                ])
+
+            valid_candidates = []
+            for x, y, z in candidates:
+                if (x + l <= Lmax and y + w <= Wmax and z + h <= Hmax and
+                    not any(is_overlap(x, y, z, l, w, h, *ob) for ob in occupied)):
                     
                     support = get_support_area(x, y, z, l, w, h)
                     corner_dist = get_corner_distance(x, y, z)
                     stability = support / (l * w) if l * w > 0 else 0
                     
-                    # Enhanced scoring function
-                    score = (support * 2 - corner_dist * 0.1 - z * 0.5 + stability * 10)
-                    
-                    if score > best_score:
-                        best_pos = (x, y, z)
-                        best_rot = rot
-                        best_score = score
+                    score = (support, -corner_dist, -z, stability)
+                    valid_candidates.append((x, y, z, score))
             
-            if best_pos:
-                x, y, z = best_pos
-                l, w, h = b_dims[best_rot[0]], b_dims[best_rot[1]], b_dims[best_rot[2]]
+            if not valid_candidates:
+                return None
                 
-                placed_boxes.append({
-                    'id': i, 'x': x, 'y': y, 'z': z, 
-                    'rot': best_rot, 'dims': (l, w, h)
-                })
-                occupied.append((x, y, z, l, w, h))
-                boxes_to_remove.append(i)
-        
-        # Remove placed boxes
-        for i in boxes_to_remove:
-            remaining_boxes.remove(i)
-            
-        if not boxes_to_remove:
-            break
+            # Sort by score and return best position
+            valid_candidates.sort(key=lambda x: x[3], reverse=True)
+            return valid_candidates[0][:3]
 
-    # Write output
+        # Multi-pass placement with different strategies
+        remaining_boxes = sorted_box_ids.copy()
+
+        for pass_num in range(4):  # 4 passes for better fill rate
+            print(f"Enhanced greedy pass {pass_num + 1}: {len(remaining_boxes)} boxes remaining")
+            
+            if pass_num == 1:
+                # Sort by smallest dimension first
+                remaining_boxes.sort(key=lambda i: min(boxes_dict[i][:3]))
+            elif pass_num == 2:
+                # Sort by aspect ratio (prefer cubic shapes)
+                remaining_boxes.sort(key=lambda i: max(boxes_dict[i][:3])/min(boxes_dict[i][:3]))
+            elif pass_num == 3:
+                # Sort by volume density
+                remaining_boxes.sort(key=lambda i: boxes_dict[i][0]*boxes_dict[i][1]*boxes_dict[i][2], reverse=True)
+            
+            boxes_to_remove = []
+            
+            for i in remaining_boxes:
+                b_dims = boxes_dict[i]
+                best_pos = None
+                best_rot = None
+                best_score = -1
+                
+                # Try all valid rotations
+                valid_rots = get_valid_rotations(b_dims, Lmax, Wmax, Hmax)
+                
+                for rid, rot in valid_rots:
+                    pos_result = find_best_positions(b_dims, rot, boxes[i - 1])
+                    if pos_result:
+                        x, y, z = pos_result
+                        l, w, h = b_dims[rot[0]], b_dims[rot[1]], b_dims[rot[2]]
+                        
+                        support = get_support_area(x, y, z, l, w, h)
+                        corner_dist = get_corner_distance(x, y, z)
+                        stability = support / (l * w) if l * w > 0 else 0
+                        
+                        # Enhanced scoring function
+                        score = (support * 2 - corner_dist * 0.1 - z * 0.5 + stability * 10)
+                        
+                        if score > best_score:
+                            best_pos = (x, y, z)
+                            best_rot = rot
+                            best_score = score
+                
+                if best_pos:
+                    x, y, z = best_pos
+                    l, w, h = b_dims[best_rot[0]], b_dims[best_rot[1]], b_dims[best_rot[2]]
+                    
+                    placed_boxes.append({
+                        'id': i, 'x': x, 'y': y, 'z': z, 
+                        'rot': best_rot, 'dims': (l, w, h)
+                    })
+                    occupied.append((x, y, z, l, w, h))
+                    boxes_to_remove.append(i)
+            
+            # Remove placed boxes
+            for i in boxes_to_remove:
+                remaining_boxes.remove(i)
+                
+            if not boxes_to_remove:
+                break
+
+            # after placing, apply compaction to improve density
+            try:
+                _compact_placed_boxes(placed_boxes, occupied, Lmax, Wmax, Hmax)
+            except Exception:
+                pass
+
+            packed_volume = sum(pb['dims'][0] * pb['dims'][1] * pb['dims'][2] for pb in placed_boxes)
+            mean_volume_used = (packed_volume / container_volume) if container_volume > 0 else 0
+            fill_rate = mean_volume_used * 100
+
+            if fill_rate > best_fill:
+                best_fill = fill_rate
+                best_solution = (placed_boxes.copy(), occupied.copy())
+
+    # write best solution
+    if best_solution is None:
+        best_solution = ([], [])
+
+    placed_boxes, occupied = best_solution
+
     with open(output_file, "w") as f_out:
         f_out.write(f"Vehicle 1. Dimensions ({v_dims[0]}, {v_dims[1]}, {v_dims[2]}).\n\n")
-        
+
         packed_volume = 0
         for pb in placed_boxes:
             f_out.write(f"{pb['id']} \t {pb['x']:.2f} \t {pb['y']:.2f} \t {pb['z']:.2f} \t {pb['dims'][0]:.2f}\t {pb['dims'][1]:.2f}\t {pb['dims'][2]:.2f}\t NA\n")
             packed_volume += pb['dims'][0] * pb['dims'][1] * pb['dims'][2]
-        
+
         mean_volume_used = (packed_volume / container_volume) if container_volume > 0 else 0
         fill_rate = mean_volume_used * 100
-        
+
         f_out.write(f"\nVehicles used: 1\n")
         f_out.write(f"Boxes packed: {len(placed_boxes)}/{len(box_ids)}\n")
         f_out.write(f"Mean volume used per vehicle: {mean_volume_used:.4f}\n")
         f_out.write(f"Fill rate: {fill_rate:.2f}%\n")
-        f_out.write(f"Enhanced greedy placement mode\n")
-        
+        f_out.write(f"Enhanced greedy placement mode - best of {restarts} restarts\n")
+
     print(f"Enhanced greedy solution with fill rate: {fill_rate:.2f}%")
     print(f"Boxes packed: {len(placed_boxes)}/{len(box_ids)}")
