@@ -3,7 +3,7 @@ from typing import List, Dict
 
 from ga_logic import Box as AlgoBox, Container as AlgoContainer, GeneticAlgorithm, format_results_for_frontend
 
-def run_ga_packing(container_data: Dict, items_data: List[Dict], groups_data: List[Dict], constraints: Dict) -> Dict:
+def run_ga_packing(container_data: Dict, items_data: List[Dict], groups_data: List[Dict], constraints: Dict, on_log=None, stop_event=None) -> Dict:
     """
     Membungkus algoritma GA dengan penanganan nilai None yang lebih baik.
     """
@@ -49,12 +49,22 @@ def run_ga_packing(container_data: Dict, items_data: List[Dict], groups_data: Li
             elitism_count=5
         )
         
-        raw_result = ga.run()
+        print("Starting GA calculation")  # Debug log
+        
+        # attach stop_event to GA instance so it can be observed inside run()
+        if stop_event is not None:
+            try:
+                setattr(ga, 'stop_event', stop_event)
+            except Exception:
+                pass
+
+        raw_result, logs = ga.run(on_log=on_log, )
 
         if not raw_result:
             return {"error": "Genetic Algorithm tidak menghasilkan solusi yang valid."}
 
         final_result = format_results_for_frontend(raw_result, container, groups_data)
+        final_result['logs'] = logs
 
         return final_result
 

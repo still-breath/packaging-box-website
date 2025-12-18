@@ -76,6 +76,7 @@ class GeneticAlgorithm:
         self.boxes, self.container, self.constraints = boxes, container, constraints if constraints else {}
         self.population_size, self.generations, self.mutation_rate, self.crossover_rate, self.elitism_count = population_size, generations, mutation_rate, crossover_rate, elitism_count
         self.population = []
+        self.logs = []  # Tambahkan list untuk menyimpan log
     def _create_individual(self) -> Tuple[List[int], List[int]]:
         order = list(range(len(self.boxes)))
         random.shuffle(order)
@@ -141,9 +142,14 @@ class GeneticAlgorithm:
             o_idx = o[idx_mut]
             r[idx_mut] = random.choice(self.boxes[o_idx].allowed_rotations)
         return (o, r)
-    def run(self):
+    def run(self, on_log=None):
+        """
+        Run the GA. If `on_log` is provided (callable), it will be called with each log line
+        as the generations progress. Returns tuple (best_solution, logs_list).
+        """
         self._initialize_population()
         best_sol, best_fit = None, -1.0
+        self.logs = []  # Reset logs
         for gen in range(self.generations):
             pop_fit = [(self._calculate_fitness(ind)[0], ind) for ind in self.population]
             pop_fit.sort(key=lambda x: x[0], reverse=True)
@@ -156,8 +162,31 @@ class GeneticAlgorithm:
                 c1, _ = self._crossover(p1, p2)
                 new_pop.append(self._mutate(c1))
             self.population = new_pop
-            print(f"Generasi {gen+1}/{self.generations} | Fitness: {best_fit:.2f}")
-        return best_sol
+            log_line = f"Generasi {gen+1}/{self.generations} | Fitness: {best_fit:.2f}"
+            print(log_line)
+            self.logs.append(log_line)
+            if on_log and callable(on_log):
+                try:
+                    on_log(log_line)
+                except Exception:
+                    # Ensure logging callback errors don't stop GA
+                    pass
+            # Check for stop request if provided as attribute
+            try:
+                if getattr(self, 'stop_event', None) and self.stop_event.is_set():
+                    cancel_msg = "CANCELLED by user"
+                    print(cancel_msg)
+                    self.logs.append(cancel_msg)
+                    if on_log and callable(on_log):
+                        try:
+                            on_log(cancel_msg)
+                        except Exception:
+                            pass
+                    return (None, self.logs)
+            except Exception:
+                # ignore stop_event errors
+                pass
+        return best_sol, self.logs
 
 def format_results_for_frontend(result: Tuple, container: Container, initial_groups: List[Dict]) -> Optional[Dict]:
     if not result: return None
