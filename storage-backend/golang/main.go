@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -20,6 +22,10 @@ import (
 
 // --- JWT Secret ---
 var jwtKey = []byte(os.Getenv("JWT_SECRET_KEY"))
+
+// In-memory mapping from python job id -> local calculation id
+var jobMap = make(map[string]int)
+var jobMapMutex = &sync.Mutex{}
 
 // --- Structs for Data Models ---
 
@@ -100,22 +106,29 @@ func connectDB() *pgxpool.Pool {
 // --- Database Setup ---
 
 func setupDatabase(pool *pgxpool.Pool) {
-	_, err := pool.Exec(context.Background(), `
-		DROP TABLE IF EXISTS placed_items CASCADE;
-		DROP TABLE IF EXISTS calculation_results CASCADE;
-		DROP TABLE IF EXISTS calculation_requests CASCADE;
-		DROP TABLE IF EXISTS groups CASCADE;
-		DROP TABLE IF EXISTS items CASCADE;
-		DROP TABLE IF EXISTS calculations CASCADE;
-		DROP TABLE IF EXISTS constraints CASCADE;
-		DROP TABLE IF EXISTS containers CASCADE;
-		DROP TABLE IF EXISTS item_groups CASCADE;
-		DROP TABLE IF EXISTS users CASCADE;
-	`)
-	if err != nil {
-		log.Printf("Warning: Failed to drop tables: %v\n", err)
+	var err error
+	// By default do NOT drop existing tables on startup to preserve data.
+	// To force a reset (for testing) set environment variable RESET_DB=true
+	if os.Getenv("RESET_DB") == "true" {
+		_, err := pool.Exec(context.Background(), `
+			DROP TABLE IF EXISTS placed_items CASCADE;
+			DROP TABLE IF EXISTS calculation_results CASCADE;
+			DROP TABLE IF EXISTS calculation_requests CASCADE;
+			DROP TABLE IF EXISTS groups CASCADE;
+			DROP TABLE IF EXISTS items CASCADE;
+			DROP TABLE IF EXISTS calculations CASCADE;
+			DROP TABLE IF EXISTS constraints CASCADE;
+			DROP TABLE IF EXISTS containers CASCADE;
+			DROP TABLE IF EXISTS item_groups CASCADE;
+			DROP TABLE IF EXISTS users CASCADE;
+		`)
+		if err != nil {
+			log.Printf("Warning: Failed to drop tables: %v\n", err)
+		} else {
+			log.Println("Successfully dropped all existing tables.")
+		}
 	} else {
-		log.Println("Successfully dropped all existing tables.")
+		log.Println("RESET_DB not set — skipping DROP TABLE. Existing data will be preserved.")
 	}
 
 	// Create Users Table
@@ -433,6 +446,183 @@ func saveCalculationResults(db *pgxpool.Pool, calculationID int, pythonResponse 
 	return tx.Commit(context.Background())
 }
 
+// --- Stream proxy handler: forwards SSE from Python and saves final result ---
+func handleGoStreamProxy(db *pgxpool.Pool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		jobID := c.Param("job_id")
+
+		jobMapMutex.Lock()
+		calcID, ok := jobMap[jobID]
+		jobMapMutex.Unlock()
+		if !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Job not found"})
+			return
+		}
+
+		pythonBase := os.Getenv("PYTHON_BACKEND_URL")
+		// default Python stream URL if not provided
+		var pythonStreamURL string
+		if pythonBase == "" {
+			pythonStreamURL = fmt.Sprintf("http://localhost:8000/calculate/stream/%s", jobID)
+		} else {
+			// If PYTHON_BACKEND_URL points to /calculate/python, derive base
+			base := strings.TrimSuffix(pythonBase, "/calculate/python")
+			base = strings.TrimSuffix(base, "/calculate")
+			pythonStreamURL = fmt.Sprintf("%s/calculate/stream/%s", base, jobID)
+		}
+
+		req, _ := http.NewRequest("GET", pythonStreamURL, nil)
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Printf("Failed to connect to Python SSE: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to Python stream"})
+			return
+		}
+		// Do not defer resp.Body.Close() here because we will stream until done
+
+		c.Writer.Header().Set("Content-Type", "text/event-stream")
+		c.Writer.Header().Set("Cache-Control", "no-cache")
+		c.Writer.Header().Set("Connection", "keep-alive")
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Status(http.StatusOK)
+
+		flusher, okf := c.Writer.(http.Flusher)
+		if !okf {
+			resp.Body.Close()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Streaming unsupported"})
+			return
+		}
+
+		reader := bufio.NewReader(resp.Body)
+		expectingDone := false
+		var doneBuilder strings.Builder
+
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil && err != io.EOF {
+				log.Printf("Error reading from Python SSE body: %v", err)
+				break
+			}
+
+			// Remove trailing \n and any \r
+			trimmed := strings.TrimRight(line, "\r\n")
+
+			// Forward line to client immediately
+			_, _ = c.Writer.Write([]byte(trimmed + "\n"))
+			flusher.Flush()
+
+			if strings.HasPrefix(trimmed, "event: done") {
+				expectingDone = true
+				doneBuilder.Reset()
+				// continue to next lines which may contain one or more data: lines
+				continue
+			}
+
+			if expectingDone {
+				// accumulate all consecutive data: lines until a blank line indicates end of event
+				if strings.HasPrefix(trimmed, "data:") {
+					data := strings.TrimPrefix(trimmed, "data: ")
+					doneBuilder.WriteString(data)
+					// continue reading more lines to collect full payload
+					continue
+				}
+
+				// blank line (or any non-data line) after collecting data indicates end of event
+				if strings.TrimSpace(trimmed) == "" {
+					// parse JSON and save to DB
+					var pythonResponse map[string]interface{}
+					if err := json.Unmarshal([]byte(doneBuilder.String()), &pythonResponse); err != nil {
+						log.Printf("Failed to parse final python result: %v", err)
+					} else {
+						if err := saveCalculationResults(db, calcID, pythonResponse); err != nil {
+							log.Printf("Failed to save calculation results (proxy): %v", err)
+						} else {
+							log.Printf("Saved structured calculation results for calculation ID: %d (via proxy)", calcID)
+						}
+					}
+
+					// after handling done, break and close stream
+					break
+				}
+
+				// If we get here and the line is neither data: nor blank, treat as end and attempt parse
+				var pythonResponse map[string]interface{}
+				if doneBuilder.Len() > 0 {
+					if err := json.Unmarshal([]byte(doneBuilder.String()), &pythonResponse); err != nil {
+						log.Printf("Failed to parse final python result (unexpected line): %v", err)
+					} else {
+						if err := saveCalculationResults(db, calcID, pythonResponse); err != nil {
+							log.Printf("Failed to save calculation results (proxy): %v", err)
+						} else {
+							log.Printf("Saved structured calculation results for calculation ID: %d (via proxy)", calcID)
+						}
+					}
+				}
+				break
+			}
+
+			if err == io.EOF {
+				// End of stream
+				break
+			}
+		}
+
+		resp.Body.Close()
+		return
+	}
+}
+
+func handleGoCancel(db *pgxpool.Pool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var payload struct {
+			JobID string `json:"job_id"`
+		}
+		if err := c.ShouldBindJSON(&payload); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+			return
+		}
+		if payload.JobID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "job_id is required"})
+			return
+		}
+
+		pythonBase := os.Getenv("PYTHON_BACKEND_URL")
+		var cancelURL string
+		if pythonBase == "" {
+			cancelURL = fmt.Sprintf("http://localhost:8000/calculate/stream/%s/cancel", payload.JobID)
+		} else {
+			base := strings.TrimSuffix(pythonBase, "/calculate/python")
+			base = strings.TrimSuffix(base, "/calculate")
+			cancelURL = fmt.Sprintf("%s/calculate/stream/%s/cancel", base, payload.JobID)
+		}
+
+		resp, err := http.Post(cancelURL, "application/json", nil)
+		if err != nil {
+			log.Printf("Failed to call Python cancel endpoint: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cancel job"})
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode >= 400 {
+			body, _ := io.ReadAll(resp.Body)
+			log.Printf("Python cancel returned error: %s", string(body))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Python cancel failed"})
+			return
+		}
+
+		// Also remove mapping if exists
+		jobMapMutex.Lock()
+		delete(jobMap, payload.JobID)
+		jobMapMutex.Unlock()
+
+		c.JSON(http.StatusOK, gin.H{"status": "cancelled"})
+	}
+}
+
 func generateJWT(userID int) (string, error) {
 	expirationTime := time.Now().Add(24 * time.Hour)
 	claims := &Claims{
@@ -522,7 +712,14 @@ func handleGoCalculation(db *pgxpool.Pool) gin.HandlerFunc {
 			return
 		}
 
-		// Use a transaction to ensure all inserts succeed or none do
+		// Verify user exists in database
+		var existsUser bool
+		err := db.QueryRow(context.Background(), "SELECT EXISTS(SELECT 1 FROM users WHERE id=$1)", userID).Scan(&existsUser)
+		if err != nil || !existsUser {
+			log.Printf("User ID %d does not exist in database: %v", userID, err)
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
+			return
+		} // Use a transaction to ensure all inserts succeed or none do
 		tx, err := db.Begin(context.Background())
 		if err != nil {
 			log.Printf("Failed to begin transaction: %v", err)
@@ -561,7 +758,7 @@ func handleGoCalculation(db *pgxpool.Pool) gin.HandlerFunc {
 		calculationSQL := `INSERT INTO calculations (user_id, container_id, constraints_id, algorithm) VALUES ($1, $2, $3, $4) RETURNING id;`
 		err = tx.QueryRow(context.Background(), calculationSQL, userID, containerID, constraintsID, algorithm).Scan(&calculationID)
 		if err != nil {
-			log.Printf("Failed to insert calculation: %v", err)
+			log.Printf("Failed to insert calculation: %v, userID: %d, containerID: %d, constraintsID: %d", err, userID, containerID, constraintsID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save calculation data."})
 			return
 		}
@@ -625,13 +822,61 @@ func handleGoCalculation(db *pgxpool.Pool) gin.HandlerFunc {
 
 		log.Printf("Saved new calculation with ID: %d for user ID: %d", calculationID, userID)
 
-		// --- Call Python Backend (same as before) ---
+		// --- Call Python Backend (supports streaming GA jobs) ---
 		pythonURL := os.Getenv("PYTHON_BACKEND_URL")
 		if pythonURL == "" {
 			pythonURL = "http://localhost:8000/calculate/python"
 		}
 		jsonReq, _ := json.Marshal(requestData)
 
+		if algorithm == "PYTHON_GA" || algorithm == "PYTHON_CLPTAC" {
+			// Start streamed GA job on Python and return job_id to client
+			streamStart := os.Getenv("PYTHON_BACKEND_STREAM_START")
+			if streamStart == "" {
+				base := strings.TrimSuffix(pythonURL, "/calculate/python")
+				base = strings.TrimSuffix(base, "/calculate")
+				streamStart = fmt.Sprintf("%s/calculate/stream/start", base)
+			}
+
+			resp2, err := http.Post(streamStart, "application/json", bytes.NewBuffer(jsonReq))
+			if err != nil {
+				log.Printf("Failed to start Python GA job: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start GA job."})
+				return
+			}
+			defer resp2.Body.Close()
+
+			body2, err := io.ReadAll(resp2.Body)
+			if err != nil {
+				log.Printf("Failed to read start response: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start GA job."})
+				return
+			}
+
+			var startResp map[string]interface{}
+			if err := json.Unmarshal(body2, &startResp); err != nil {
+				log.Printf("Invalid start response from Python: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid start response from GA service."})
+				return
+			}
+			jobID, _ := startResp["job_id"].(string)
+			if jobID == "" {
+				log.Printf("Python did not return job_id: %s", string(body2))
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "GA service failed to return job id."})
+				return
+			}
+
+			// Map python job id to our calculationID so proxy can save result
+			jobMapMutex.Lock()
+			jobMap[jobID] = calculationID
+			jobMapMutex.Unlock()
+
+			// Return job id to client
+			c.JSON(http.StatusOK, gin.H{"job_id": jobID})
+			return
+		}
+
+		// Fallback synchronous call for non-GA algorithms
 		resp, err := http.Post(pythonURL, "application/json", bytes.NewBuffer(jsonReq))
 		if err != nil {
 			log.Printf("Failed to call Python backend: %v", err)
@@ -739,7 +984,10 @@ func main() {
 	apiRoutes.Use(authMiddleware())
 	{
 		apiRoutes.POST("/calculate/golang", handleGoCalculation(dbPool))
+		apiRoutes.POST("/calculate/golang/cancel", handleGoCancel(dbPool))
 	}
+
+	router.GET("/api/calculate/golang/stream/:job_id", handleGoStreamProxy(dbPool))
 
 	log.Println("Go server starting on port 8080...")
 	router.Run(":8080")
