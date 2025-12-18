@@ -33,6 +33,19 @@ export default function App() {
   const [usedAlgorithm, setUsedAlgorithm] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [calculationLog, setCalculationLog] = useState<string[] | null>(null);
+  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
+  const [eventSource, setEventSource] = useState<EventSource | null>(null);
+
+  // append a log line keeping at most 5 recent entries
+  const appendLog = (line: string) => {
+    setCalculationLog(prev => {
+      const arr = prev ? [...prev] : [];
+      arr.push(line);
+      if (arr.length > 5) arr.splice(0, arr.length - 5);
+      return arr;
+    });
+  };
 
   useEffect(() => {
     const storedToken = localStorage.getItem('authToken');
@@ -98,22 +111,92 @@ export default function App() {
     };
 
     try {
-        const resultData: ApiResponse = await postCalculation(requestBody, token);
-        
-        if ('error' in resultData && resultData.error) {
-             throw new Error(`Calculation error from backend: ${resultData.error}`);
+      // For Python GA we use streaming endpoint to show logs in realtime
+      if (algorithm === 'PYTHON_GA' || algorithm === 'PYTHON_CLPTAC') {
+        // Start job via Go backend (authenticated) which in turn starts Python GA job
+        const startResp = await fetch('http://localhost:8080/api/calculate/golang', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify(requestBody)
+        });
+        if (!startResp.ok) {
+          const errText = await startResp.text();
+          throw new Error(`Failed to start GA job: ${errText}`);
         }
+        const startData = await startResp.json();
+        const jobId = startData.job_id;
+        setCurrentJobId(jobId);
 
-        setCalculationResult(resultData as CalculationResult);
-        setContainerData(container);
-        setUsedAlgorithm(algorithm);
+        // Prepare log modal with a connecting message so modal isn't empty
+        setCalculationLog([`Connecting to job ${jobId}...`]);
+
+        // Open EventSource to receive logs and final result proxied by Go
+        const es = new EventSource(`http://localhost:8080/api/calculate/golang/stream/${jobId}`);
+        setEventSource(es);
+        console.log('Opening EventSource for job:', jobId);
+        es.onopen = () => console.log('EventSource opened');
+        es.onmessage = (ev) => {
+          console.log('Received SSE message:', ev.data);
+          appendLog(ev.data);
+        };
+        es.addEventListener('done', async (ev: any) => {
+          console.log('Received done event:', ev.data);
+          try {
+            const data = JSON.parse(ev.data);
+            if (data && data.error) {
+              // Append error to log so user sees why calculation failed
+              setCalculationLog(prev => (prev ? [...prev, `ERROR: ${data.error}`] : [`ERROR: ${data.error}`]));
+              setError(data.error);
+            } else {
+              setCalculationResult(data as CalculationResult);
+              setContainerData(container);
+              setUsedAlgorithm(algorithm);
+              setPage('visualization');
+            }
+          } catch (err) {
+            console.error('Failed to parse final result', err);
+            setError('Failed to parse final result from calculation');
+          } finally {
+            es.close();
+            setEventSource(null);
+            setIsLoading(false);
+            setCurrentJobId(null);
+          }
+        });
+        // Listen for named 'error' events emitted by the SSE stream (these can carry error details)
+        es.addEventListener('error', (ev: any) => {
+          console.log('Received error event on SSE', ev);
+          // EventSource error events often don't include data; append a generic message
+          const msg = ev?.data ? (typeof ev.data === 'string' ? ev.data : JSON.stringify(ev.data)) : 'Calculation streaming error (SSE)';
+          appendLog(`ERROR: ${msg}`);
+          setError(msg);
+          // don't immediately close here; allow 'done' or server to close stream
+        });
+
+        // Show log modal immediately
         setPage('visualization');
+        return;
+      }
+
+      // Fallback: use existing backend proxy for other algorithms
+      const resultData: ApiResponse = await postCalculation(requestBody, token);
+        
+      if ('error' in resultData && resultData.error) {
+         throw new Error(`Calculation error from backend: ${resultData.error}`);
+      }
+
+      setCalculationResult(resultData as CalculationResult);
+      setContainerData(container);
+      setUsedAlgorithm(algorithm);
+      if ('logs' in resultData) setCalculationLog((resultData as any).logs || null);
+      setPage('visualization');
 
     } catch (e: any) {
-        console.error("Failed to call API:", e);
-        setError(`Failed to get data from backend: ${e.message}`);
+      console.error("Failed to call API:", e);
+      setError(`Failed to get data from backend: ${e.message}`);
     } finally {
-        setIsLoading(false);
+      // For PYTHON_GA the EventSource handler will clear isLoading when done.
+      if (algorithm !== 'PYTHON_GA') setIsLoading(false);
     }
   };
 
@@ -162,19 +245,70 @@ export default function App() {
           </div>
       )}
 
-      {isLoading && (
+      {/* Unified overlay: shows spinner, log modal, or error in the same centered box */}
+      {(isLoading || calculationLog || error) && (
         <div className="loading-overlay">
-            <div className="spinner"></div>
-            <p style={{marginTop: '1rem'}}>Calculating...</p>
-        </div>
-      )}
+          <div className="centered-box">
+            {calculationLog ? (
+              <div className="log-modal">
+                <h3>Calculation Log</h3>
+                <div className="log-content">
+                  <pre>{calculationLog.join('\n')}</pre>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem', alignItems: 'center' }}>
+                  {currentJobId && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <div className="spinner" style={{ width: 28, height: 28, borderWidth: 4 }}></div>
+                      <div>Calculating...</div>
+                    </div>
+                  )}
+                  <div>
+                    <button onClick={() => {
+                      // closing log should not leave the EventSource open if job finished
+                      setCalculationLog(null);
+                    }}>Close</button>
+                  </div>
+                  {currentJobId && (
+                    <button onClick={async () => {
+                      try {
+                        // close local EventSource first so UI updates immediately
+                        try { eventSource?.close(); } catch (e) { /* ignore */ }
+                        setEventSource(null);
 
-      {error && (
-        <div className="loading-overlay">
-          <div className="error-modal">
-              <h3>Operation Failed</h3>
-              <p>{error}</p>
-              <button onClick={() => setError(null)}>Close</button>
+                        const resp = await fetch(`http://localhost:8080/api/calculate/golang/cancel`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                          body: JSON.stringify({ job_id: currentJobId })
+                        });
+                        if (!resp.ok) {
+                          const t = await resp.text();
+                          appendLog(`ERROR: Failed to cancel job: ${t}`);
+                          setError('Failed to cancel job');
+                        } else {
+                          appendLog('Cancellation requested');
+                        }
+                      } catch (e) {
+                        appendLog('ERROR: Cancel request failed');
+                      } finally {
+                        setCurrentJobId(null);
+                        setIsLoading(false);
+                      }
+                    }}>Cancel</button>
+                  )}
+                </div>
+              </div>
+            ) : error ? (
+              <div className="error-modal">
+                <h3>Operation Failed</h3>
+                <p>{error}</p>
+                <button onClick={() => setError(null)}>Close</button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <div className="spinner" style={{ width: 48, height: 48, borderWidth: 6 }}></div>
+                <p style={{marginTop: '1rem'}}>Calculating...</p>
+              </div>
+            )}
           </div>
         </div>
       )}

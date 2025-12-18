@@ -1,5 +1,6 @@
 // src/pages/DataCalculation.tsx
-import React from 'react';
+import React, { useRef, useState } from 'react';
+import { importExcel } from '../api';
 import { Box, Group, Container } from '../types/types';
 
 // Helper component untuk toggle switch
@@ -31,6 +32,44 @@ const DataCalculationPage = ({
     setContainer, setBoxes, setGroups, setConstraints,
     onPresetChange, onVisualize 
 }: DataCalculationPageProps) => {
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [selectedPreset, setSelectedPreset] = useState<'' | '10ft' | '20ft' | '40ft'>('');
+  const [selectedExcelAction, setSelectedExcelAction] = useState<'' | 'IMPORT' | 'TEMPLATE'>('');
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    try {
+      const parsed = await importExcel(f);
+      if (parsed.container) setContainer(parsed.container);
+      if (parsed.groups) setGroups(parsed.groups);
+      if (parsed.items) {
+        const mapped = parsed.items.map((it: any) => ({
+          id: it.id || `${Date.now()}-${Math.random()}`,
+          quantity: it.quantity || 1,
+          length: it.length || 0,
+          width: it.width || 0,
+          height: it.height || 0,
+          weight: it.weight || 0,
+          group: it.group || '',
+          allowed_rotations: it.allowed_rotations || '',
+          max_stack_weight: it.max_stack_weight || undefined,
+          priority: it.priority || undefined,
+          destination_group: it.destination_group || undefined,
+        }));
+        setBoxes(mapped);
+      }
+    } catch (err) {
+      console.error('Import failed', err);
+      alert('Import failed: ' + (err as any).message);
+    }
+  };
 
   const handleContainerChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -83,11 +122,71 @@ const DataCalculationPage = ({
       <div className="sidebar">
         <div className="card">
             <h3 className="card-title">LOAD PRESET</h3>
-            <div className="input-group">
-                <button onClick={() => onPresetChange('10ft')} className="visualize-button">10ft</button>
-                <button onClick={() => onPresetChange('20ft')} className="visualize-button">20ft</button>
-                <button onClick={() => onPresetChange('40ft')} className="visualize-button">40ft</button>
-            </div>
+                <div className="input-group" style={{display: 'flex', gap: '0.5rem', alignItems: 'center'}}>
+                  <div style={{display: 'flex', gap: '0.5rem', alignItems: 'center'}}>
+                    <select
+                      onChange={(e) => {
+                        const val = e.target.value as '' | '10ft' | '20ft' | '40ft';
+                        setSelectedPreset(val);
+                        if (val) onPresetChange(val as '10ft' | '20ft' | '40ft');
+                      }}
+                      value={selectedPreset}
+                      style={{
+                        padding: '0.35rem 0.5rem',
+                        fontSize: '0.85rem',
+                        width: '120px',
+                        boxSizing: 'border-box',
+                      }}
+                    >
+                      <option value="">Preset</option>
+                      <option value="10ft">10ft</option>
+                      <option value="20ft">20ft</option>
+                      <option value="40ft">40ft</option>
+                    </select>
+                  </div>
+
+                  <select
+                    value={selectedExcelAction}
+                    onChange={async (e) => {
+                      const val = e.target.value as '' | 'IMPORT' | 'TEMPLATE';
+                      setSelectedExcelAction(val);
+                      if (val === 'IMPORT') {
+                        fileInputRef.current?.click();
+                        return;
+                      }
+
+                      // TEMPLATE: download immediately when selected
+                      try {
+                        const resp = await fetch('http://localhost:8000/templates/import_template.xlsx');
+                        if (!resp.ok) throw new Error('Failed to download template');
+                        const blob = await resp.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = 'import_template.xlsx';
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                        window.URL.revokeObjectURL(url);
+                      } catch (err) {
+                        console.error('Template download failed', err);
+                        alert('Template download failed');
+                      }
+                    }}
+                    style={{
+                      padding: '0.35rem 0.5rem',
+                      fontSize: '0.85rem',
+                      width: '120px',
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    <option value="">Excel Data</option>
+                    <option value="IMPORT">Import Excel</option>
+                    <option value="TEMPLATE">Download Template</option>
+                  </select>
+
+                  <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{display: 'none'}} onChange={handleFileChange} />
+                </div>
         </div>
         <div className="card">
           <h3 className="card-title">CONTAINER DATA</h3>

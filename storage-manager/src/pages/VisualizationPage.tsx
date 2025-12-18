@@ -1,5 +1,6 @@
 // src/pages/VisualizationPage.tsx
 import React, { useState, useMemo, useEffect } from 'react';
+import { exportExcel } from '../api';
 import { CalculationResult, Group, Container, PlacedBox } from '../types/types'; 
 import Container3DView from '../components/Container3DView';
 
@@ -103,6 +104,24 @@ const VisualizationPage = ({
             <div className="sidebar">
                 <div className="card">
                     <h3 className="card-title">{formatAlgorithmName(algorithm)}</h3>
+                    <div style={{marginTop: '0.5rem'}}>
+                        <button className="visualize-button" onClick={async () => {
+                            try {
+                                const blob = await exportExcel({ result, container, groups: initialGroups, algorithm });
+                                const url = window.URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = `visualization_${algorithm}.xlsx`;
+                                document.body.appendChild(a);
+                                a.click();
+                                a.remove();
+                                window.URL.revokeObjectURL(url);
+                            } catch (e) {
+                                console.error('Export failed', e);
+                                alert('Export failed');
+                            }
+                        }}>Export Excel</button>
+                    </div>
                     <p style={{fontSize: '0.75rem', color: '#6b7280'}}>Calculated at {new Date(Date.now()).toLocaleString('id-ID')}</p>
                     <div style={{marginTop: '0.5rem', fontSize: '0.875rem'}}>
                         <p>CONTAINER ({result.placedItems.length} BOXES)</p>
