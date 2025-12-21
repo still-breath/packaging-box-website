@@ -9,8 +9,9 @@ import {
   ErrorResponse 
 } from '../types/types';
 
-const API_BASE_URL = 'http://localhost:8080';
-const PY_API_BASE_URL = 'http://localhost:8000';
+// Read base URLs from environment for easier local/docker configs
+const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || process.env.API_BASE_URL) || 'http://localhost:8080';
+const PY_API_BASE_URL = (process.env.REACT_APP_PY_API_BASE_URL || process.env.PY_API_BASE_URL) || 'http://localhost:8000';
 
 // --- Auth API --- 
 
@@ -87,4 +88,55 @@ export const exportExcel = async (payload: any): Promise<Blob> => {
   });
   if (!resp.ok) throw new Error('Failed to export excel');
   return await resp.blob();
+};
+
+// --- Item Groups API ---
+
+export const getItemGroups = async (token: string | null): Promise<Array<{id: number; name: string; color: string}>> => {
+  const headers: any = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const resp = await fetch(`${API_BASE_URL}/api/item-groups`, { headers });
+  if (!resp.ok) throw new Error('Failed to fetch item groups');
+  return await resp.json();
+};
+
+export const createItemGroup = async (name: string, color: string, token: string | null) => {
+  if (!token) throw new Error('Authentication required to create group');
+  const resp = await fetch(`${API_BASE_URL}/api/item-groups`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ name, color })
+  });
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(txt || 'Failed to create item group');
+  }
+  return await resp.json();
+};
+
+export const updateItemGroup = async (id: number | string, name: string, color: string, token: string | null) => {
+  if (!token) throw new Error('Authentication required to update group');
+  const resp = await fetch(`${API_BASE_URL}/api/item-groups/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ name, color })
+  });
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(txt || 'Failed to update item group');
+  }
+  return await resp.json();
+};
+
+export const deleteItemGroup = async (id: number | string, token: string | null) => {
+  if (!token) throw new Error('Authentication required to delete group');
+  const resp = await fetch(`${API_BASE_URL}/api/item-groups/${id}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
+  });
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(txt || 'Failed to delete item group');
+  }
+  return await resp.json();
 };
