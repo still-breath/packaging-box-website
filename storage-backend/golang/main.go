@@ -247,6 +247,11 @@ func setupDatabase(pool *pgxpool.Pool) {
 		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'items' AND column_name = 'group_id') THEN
 			ALTER TABLE items ADD COLUMN group_id INTEGER REFERENCES item_groups(id);
 		END IF;
+
+		-- Ensure external_id column exists to store frontend item identifiers
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'items' AND column_name = 'external_id') THEN
+			ALTER TABLE items ADD COLUMN external_id VARCHAR(255);
+		END IF;
 		
 		-- Remove old columns if they exist
 		IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'items' AND column_name = 'calculation_id') THEN
@@ -466,12 +471,21 @@ func saveCalculationResults(db *pgxpool.Pool, calculationID int, pythonResponse 
 				// Find item_id from database based on item name/identifier using multiple fallback strategies
 				var itemDBID int
 				var findErr error
-				// Try exact match, prefix match, and substring match (case-insensitive)
+				// Try to match by external_id first (exact), then by name (various strategies).
+				// Also try matching by base name before underscore so "Box elektronik_12" matches "Box elektronik".
+				baseName := itemName
+				if idx := strings.Index(itemName, "_"); idx != -1 {
+					baseName = itemName[:idx]
+				}
+
 				queries := []struct{
 					sql  string
 					args []interface{}
 				}{
+					{"SELECT id FROM items WHERE external_id = $1 LIMIT 1;", []interface{}{itemName}},
 					{"SELECT id FROM items WHERE name = $1 LIMIT 1;", []interface{}{itemName}},
+					{"SELECT id FROM items WHERE name = $1 LIMIT 1;", []interface{}{baseName}},
+					{"SELECT id FROM items WHERE name ILIKE $1 LIMIT 1;", []interface{}{baseName+"%"}},
 					{"SELECT id FROM items WHERE name ILIKE $1 LIMIT 1;", []interface{}{itemName+"%"}},
 					{"SELECT id FROM items WHERE name ILIKE $1 LIMIT 1;", []interface{}{"%"+itemName+"%"}},
 					{"SELECT id FROM items WHERE name ILIKE $1 LIMIT 1;", []interface{}{"%"+itemName}},
@@ -834,6 +848,7 @@ func handleGoCalculation(db *pgxpool.Pool) gin.HandlerFunc {
 
 		// 4. Insert Groups first (needed for item_groups reference)
 		groupMap := make(map[string]int) // map group_id_string to group_id
+		groupNameMap := make(map[string]string) // map group_id_string to display name
 		for _, group := range requestData.Groups {
 			// First check if item_group exists, if not create it
 			var itemGroupID int
@@ -861,6 +876,9 @@ func handleGoCalculation(db *pgxpool.Pool) gin.HandlerFunc {
 			// map both by frontend id and by name so items referencing either will resolve
 			groupMap[group.ID] = itemGroupID
 			groupMap[group.Name] = itemGroupID
+			// store display name for both keys so item insertion can use the group name
+			groupNameMap[group.ID] = group.Name
+			groupNameMap[group.Name] = group.Name
 
 			// Insert to groups table for backward compatibility
 			groupSQL := `INSERT INTO groups (calculation_id, group_id_string, name, color) VALUES ($1, $2, $3, $4);`
@@ -887,14 +905,28 @@ func handleGoCalculation(db *pgxpool.Pool) gin.HandlerFunc {
 						c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save item group for item."})
 						return
 					}
+					// record display name for this created group
+					groupNameMap[item.Group] = item.Group
 				}
 				groupID = foundID
 				// cache mapping for subsequent items
 				groupMap[item.Group] = groupID
 			}
 
-			itemSQL := `INSERT INTO items (container_id, name, width, height, length, weight, quantity, group_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8);`
-			_, err = tx.Exec(context.Background(), itemSQL, containerID, item.ID, item.Width, item.Height, item.Length, item.Weight, item.Quantity, groupID)
+			// determine display name for this item's group from item_groups table if possible
+			var displayName string
+			if dn, ok := groupNameMap[item.Group]; ok && dn != "" {
+				displayName = dn
+			} else {
+				// fallback: fetch from DB by groupID
+				_ = tx.QueryRow(context.Background(), `SELECT name FROM item_groups WHERE id=$1 LIMIT 1;`, groupID).Scan(&displayName)
+				if displayName == "" {
+					displayName = item.Group // final fallback
+				}
+			}
+
+			itemSQL := `INSERT INTO items (container_id, name, width, height, length, weight, quantity, group_id, external_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);`
+			_, err = tx.Exec(context.Background(), itemSQL, containerID, displayName, item.Width, item.Height, item.Length, item.Weight, item.Quantity, groupID, item.ID)
 			if err != nil {
 				log.Printf("Failed to insert item: %v", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save item data."})
