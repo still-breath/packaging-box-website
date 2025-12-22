@@ -8,7 +8,7 @@ import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import { Box, Group, Container, CalculationResult, ApiResponse } from './types/types';
 import { presets, getDefaultGroups } from './data';
-import { loginUser, registerUser, postCalculation } from './api';
+import { loginUser, registerUser, postCalculation, getItemGroups } from './api';
 
 import './App.css';
 
@@ -51,6 +51,18 @@ export default function App() {
     const storedToken = localStorage.getItem('authToken');
     if (storedToken) {
       setToken(storedToken);
+      // fetch groups from backend
+      (async () => {
+        try {
+          const groupsFromApi = await getItemGroups(storedToken);
+          if (groupsFromApi && groupsFromApi.length) {
+            // Map to frontend Group type (id as string)
+            setGroups(groupsFromApi.map(g => ({ id: String(g.id), name: g.name, color: g.color })));
+          }
+        } catch (err) {
+          console.warn('Failed to load groups from API:', err);
+        }
+      })();
     }
   }, []);
 
@@ -60,6 +72,15 @@ export default function App() {
       const receivedToken = await loginUser(credentials);
       localStorage.setItem('authToken', receivedToken);
       setToken(receivedToken);
+      // Load groups after login
+      try {
+        const groupsFromApi = await getItemGroups(receivedToken);
+        if (groupsFromApi && groupsFromApi.length) {
+          setGroups(groupsFromApi.map(g => ({ id: String(g.id), name: g.name, color: g.color })));
+        }
+      } catch (err) {
+        console.warn('Failed to load groups after login', err);
+      }
       setError(null);
     } catch (err: any) {
       setError(err.message || 'Login failed');

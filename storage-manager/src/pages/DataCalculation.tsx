@@ -1,6 +1,6 @@
 // src/pages/DataCalculation.tsx
 import React, { useRef, useState } from 'react';
-import { importExcel } from '../api';
+import { importExcel, createItemGroup, updateItemGroup, deleteItemGroup } from '../api';
 import { Box, Group, Container } from '../types/types';
 
 // Helper component untuk toggle switch
@@ -99,18 +99,63 @@ const DataCalculationPage = ({
   };
 
   const addGroup = () => {
-      const newGroup: Group = { id: `${Date.now()}`, name: `Group ${groups.length + 1}`, color: `#${Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')}` };
+      const name = `Group ${groups.length + 1}`;
+      const color = `#${Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')}`;
+      const token = localStorage.getItem('authToken');
+      if (token) {
+        // try to persist to backend first
+        createItemGroup(name, color, token).then((res: any) => {
+          const created = { id: String(res.id), name: res.name, color: res.color } as Group;
+          setGroups(prevGroups => [...prevGroups, created]);
+        }).catch(err => {
+          console.error('Failed to create group on server', err);
+          // fallback to local-only group
+          const newGroup: Group = { id: `${Date.now()}`, name, color };
+          setGroups(prevGroups => [...prevGroups, newGroup]);
+          alert('Group created locally but failed to persist to server.');
+        });
+        return;
+      }
+
+      // No token — create locally only
+      const newGroup: Group = { id: `${Date.now()}`, name, color };
       setGroups(prevGroups => [...prevGroups, newGroup]);
   };
 
   const removeGroup = (idToRemove: string) => {
+      const token = localStorage.getItem('authToken');
+      if (token) {
+        // optimistic remove
+        const prev = groups;
+        setGroups(prevGroups => prevGroups.filter(group => group.id !== idToRemove));
+        deleteItemGroup(idToRemove, token).catch(err => {
+          console.error('Failed to delete group on server', err);
+          alert('Failed to delete group on server. Reverting.');
+          setGroups(prev);
+        });
+        return;
+      }
       setGroups(prevGroups => prevGroups.filter(group => group.id !== idToRemove));
   };
 
   const handleGroupChange = (id: string, field: keyof Group, value: string) => {
+      const token = localStorage.getItem('authToken');
+      const prev = groups;
+      // optimistic update
       setGroups(prevGroups => prevGroups.map(group => 
           group.id === id ? { ...group, [field]: value } : group
       ));
+
+      if (token) {
+        const g = (groups.find(gr => gr.id === id) || { name: '', color: '' });
+        const newName = field === 'name' ? value : g.name;
+        const newColor = field === 'color' ? value : g.color;
+        updateItemGroup(id, newName, newColor, token).catch(err => {
+          console.error('Failed to update group on server', err);
+          alert('Failed to save group changes to server. Reverting.');
+          setGroups(prev);
+        });
+      }
   };
   
   const handleVisualizeClick = (algorithm: string) => {

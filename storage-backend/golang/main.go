@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"database/sql"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v4"
@@ -175,14 +176,36 @@ func setupDatabase(pool *pgxpool.Pool) {
 		log.Fatalf("Failed to create item_groups table: %v\n", err)
 	}
 
-	// Insert default item group (check if exists first)
-	var defaultExists int
-	err = pool.QueryRow(context.Background(), "SELECT COUNT(*) FROM item_groups WHERE name = 'default';").Scan(&defaultExists)
-	if err == nil && defaultExists == 0 {
-		defaultGroupSQL := `INSERT INTO item_groups (name, color) VALUES ('default', '#808080');`
-		_, err = pool.Exec(context.Background(), defaultGroupSQL)
+	// Seed default item groups matching frontend presets (if missing)
+	defaultGroups := []struct{ name, color string }{
+		{"Box Rokok", "#A95E90"},
+		{"Box Sparepart 1", "#6C6C9E"},
+		{"Box Sparepart 2", "#3E8E7E"},
+		{"Box Sparepart 3", "#E4A84F"},
+		{"Box elektronik", "#D1603D"},
+		{"Box Pos", "#A44A3F"},
+		{"Box Kabel", "#4A442D"},
+		{"Box Dispenser Air", "#5E4B56"},
+	}
+
+	for _, g := range defaultGroups {
+		var exists int
+		err = pool.QueryRow(context.Background(), "SELECT COUNT(*) FROM item_groups WHERE name = $1;", g.name).Scan(&exists)
 		if err != nil {
-			log.Printf("Failed to insert default item group: %v", err)
+			log.Printf("Failed to check existing item_group '%s': %v", g.name, err)
+			continue
+		}
+		if exists == 0 {
+			_, err := pool.Exec(context.Background(), "INSERT INTO item_groups (name, color) VALUES ($1, $2);", g.name, g.color)
+			if err != nil {
+				log.Printf("Failed to insert default item_group '%s': %v", g.name, err)
+			}
+		} else {
+			// ensure color is up-to-date
+			_, err := pool.Exec(context.Background(), "UPDATE item_groups SET color = $1 WHERE name = $2;", g.color, g.name)
+			if err != nil {
+				log.Printf("Failed to update color for item_group '%s': %v", g.name, err)
+			}
 		}
 	}
 
@@ -277,12 +300,28 @@ func setupDatabase(pool *pgxpool.Pool) {
 	}
 	log.Println("'calculation_results' table is ready.")
 
-	// Create Placed Items Table
+	// Create Loaded Boxes Table: store references to items loaded for a result
+	createLoadedBoxesTable := `
+	CREATE TABLE IF NOT EXISTS loaded_boxes (
+		id SERIAL PRIMARY KEY,
+		result_id INTEGER REFERENCES calculation_results(id),
+		item_id INTEGER REFERENCES items(id),
+		item_name VARCHAR(255),
+		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+	);`
+	_, err = pool.Exec(context.Background(), createLoadedBoxesTable)
+	if err != nil {
+		log.Fatalf("Failed to create loaded_boxes table: %v\n", err)
+	}
+	log.Println("'loaded_boxes' table is ready.")
+
+	// Create Placed Items Table (now references loaded_boxes)
 	createPlacedItemsTable := `
 	CREATE TABLE IF NOT EXISTS placed_items (
 		id SERIAL PRIMARY KEY,
 		result_id INTEGER REFERENCES calculation_results(id),
 		item_id INTEGER REFERENCES items(id),
+		loaded_box_id INTEGER REFERENCES loaded_boxes(id),
 		position_x DECIMAL NOT NULL,
 		position_y DECIMAL NOT NULL,
 		position_z DECIMAL NOT NULL,
@@ -424,18 +463,44 @@ func saveCalculationResults(db *pgxpool.Pool, calculationID int, pythonResponse 
 				itemName, _ := itemData["id"].(string)
 				rotation := 0 // default rotation since not provided in BLF response
 
-				// Find item_id from database based on item name/identifier
+				// Find item_id from database based on item name/identifier using multiple fallback strategies
 				var itemDBID int
-				findItemSQL := `SELECT id FROM items WHERE name = $1 OR name LIKE $2 LIMIT 1;`
-				err = tx.QueryRow(context.Background(), findItemSQL, itemName, itemName+"%").Scan(&itemDBID)
-				if err != nil {
-					log.Printf("Could not find item ID for %s, skipping: %v", itemName, err)
+				var findErr error
+				// Try exact match, prefix match, and substring match (case-insensitive)
+				queries := []struct{
+					sql  string
+					args []interface{}
+				}{
+					{"SELECT id FROM items WHERE name = $1 LIMIT 1;", []interface{}{itemName}},
+					{"SELECT id FROM items WHERE name ILIKE $1 LIMIT 1;", []interface{}{itemName+"%"}},
+					{"SELECT id FROM items WHERE name ILIKE $1 LIMIT 1;", []interface{}{"%"+itemName+"%"}},
+					{"SELECT id FROM items WHERE name ILIKE $1 LIMIT 1;", []interface{}{"%"+itemName}},
+				}
+				found := false
+				for _, q := range queries {
+					findErr = tx.QueryRow(context.Background(), q.sql, q.args...).Scan(&itemDBID)
+					if findErr == nil {
+						found = true
+						break
+					}
+				}
+				if !found {
+					log.Printf("Could not find item ID for %s, skipping: %v", itemName, findErr)
 					continue
 				}
 
-				placedItemSQL := `INSERT INTO placed_items (result_id, item_id, position_x, position_y, position_z, rotation_type) 
-								  VALUES ($1, $2, $3, $4, $5, $6);`
-				_, err = tx.Exec(context.Background(), placedItemSQL, resultID, itemDBID, posX, posY, posZ, rotation)
+
+				// Insert a loaded_box record referencing the existing item (no duplicate item properties)
+				var loadedBoxID int
+				loadedBoxSQL := `INSERT INTO loaded_boxes (result_id, item_id, item_name) VALUES ($1, $2, $3) RETURNING id;`
+				if err := tx.QueryRow(context.Background(), loadedBoxSQL, resultID, itemDBID, itemName).Scan(&loadedBoxID); err != nil {
+					log.Printf("Failed to insert loaded_box for item %s (id %d): %v", itemName, itemDBID, err)
+					continue
+				}
+
+				placedItemSQL := `INSERT INTO placed_items (result_id, item_id, loaded_box_id, position_x, position_y, position_z, rotation_type) 
+								  VALUES ($1, $2, $3, $4, $5, $6, $7);`
+				_, err = tx.Exec(context.Background(), placedItemSQL, resultID, itemDBID, loadedBoxID, posX, posY, posZ, rotation)
 				if err != nil {
 					return fmt.Errorf("failed to insert placed item: %v", err)
 				}
@@ -726,7 +791,11 @@ func handleGoCalculation(db *pgxpool.Pool) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start database transaction."})
 			return
 		}
-		defer tx.Rollback(context.Background()) // Rollback on error
+		defer func() {
+			if tx != nil {
+				_ = tx.Rollback(context.Background()) // ignore error: tx may be already committed
+			}
+		}()
 
 		// 1. Insert Container
 		var containerID int
@@ -789,7 +858,9 @@ func handleGoCalculation(db *pgxpool.Pool) gin.HandlerFunc {
 					log.Printf("Failed to update item_group color: %v", err)
 				}
 			}
+			// map both by frontend id and by name so items referencing either will resolve
 			groupMap[group.ID] = itemGroupID
+			groupMap[group.Name] = itemGroupID
 
 			// Insert to groups table for backward compatibility
 			groupSQL := `INSERT INTO groups (calculation_id, group_id_string, name, color) VALUES ($1, $2, $3, $4);`
@@ -805,7 +876,21 @@ func handleGoCalculation(db *pgxpool.Pool) gin.HandlerFunc {
 		for _, item := range requestData.Items {
 			groupID, exists := groupMap[item.Group]
 			if !exists {
-				groupID = 1 // default group if not found
+				// try to find item_group by name in DB
+				var foundID int
+				err = tx.QueryRow(context.Background(), `SELECT id FROM item_groups WHERE name=$1;`, item.Group).Scan(&foundID)
+				if err != nil {
+					// not found: create a new item_group for this name to satisfy FK
+					insertSQL := `INSERT INTO item_groups (name, color) VALUES ($1, $2) RETURNING id;`
+					if insertErr := tx.QueryRow(context.Background(), insertSQL, item.Group, "#CCCCCC").Scan(&foundID); insertErr != nil {
+						log.Printf("Failed to create fallback item_group for %s: %v", item.Group, insertErr)
+						c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save item group for item."})
+						return
+					}
+				}
+				groupID = foundID
+				// cache mapping for subsequent items
+				groupMap[item.Group] = groupID
 			}
 
 			itemSQL := `INSERT INTO items (container_id, name, width, height, length, weight, quantity, group_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8);`
@@ -821,6 +906,15 @@ func handleGoCalculation(db *pgxpool.Pool) gin.HandlerFunc {
 		requestData.Algorithm = algorithm
 
 		log.Printf("Saved new calculation with ID: %d for user ID: %d", calculationID, userID)
+
+		// Commit the transaction so other transactions can see the inserted rows
+		if err := tx.Commit(context.Background()); err != nil {
+			log.Printf("Failed to commit transaction before calling python backend: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit calculation transaction."})
+			return
+		}
+		// mark tx nil so deferred rollback is no-op
+		tx = nil
 
 		// --- Call Python Backend (supports streaming GA jobs) ---
 		pythonURL := os.Getenv("PYTHON_BACKEND_URL")
@@ -913,6 +1007,151 @@ func handleGoCalculation(db *pgxpool.Pool) gin.HandlerFunc {
 	}
 }
 
+// --- Calculation inspection endpoints ---
+
+func handleListCalculations(db *pgxpool.Pool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userIDVal, exists := c.Get("user_id")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+			return
+		}
+		userID := userIDVal.(int)
+
+		rows, err := db.Query(context.Background(), "SELECT id, algorithm, created_at FROM calculations WHERE user_id=$1 ORDER BY created_at DESC LIMIT 200;", userID)
+		if err != nil {
+			log.Printf("Failed to query calculations: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load calculations"})
+			return
+		}
+		defer rows.Close()
+
+		var out []gin.H
+		for rows.Next() {
+			var id int
+			var algorithm string
+			var createdAt time.Time
+			if err := rows.Scan(&id, &algorithm, &createdAt); err != nil {
+				log.Printf("Failed to scan calculation row: %v", err)
+				continue
+			}
+			out = append(out, gin.H{"id": id, "algorithm": algorithm, "created_at": createdAt})
+		}
+		c.JSON(http.StatusOK, out)
+	}
+}
+
+func handleGetCalculation(db *pgxpool.Pool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userIDVal, exists := c.Get("user_id")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+			return
+		}
+		userID := userIDVal.(int)
+
+		calcID := c.Param("id")
+
+		// Fetch calculation meta
+		var calculation struct{
+			ID int
+			UserID int
+			ContainerID int
+			ConstraintsID int
+			Algorithm string
+			CreatedAt time.Time
+		}
+		err := db.QueryRow(context.Background(), "SELECT id, user_id, container_id, constraints_id, algorithm, created_at FROM calculations WHERE id=$1;", calcID).Scan(&calculation.ID, &calculation.UserID, &calculation.ContainerID, &calculation.ConstraintsID, &calculation.Algorithm, &calculation.CreatedAt)
+		if err != nil {
+			log.Printf("Failed to fetch calculation %s: %v", calcID, err)
+			c.JSON(http.StatusNotFound, gin.H{"error": "Calculation not found"})
+			return
+		}
+		if calculation.UserID != userID {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+			return
+		}
+
+		// Fetch container
+		var container gin.H
+		var cWidth, cHeight, cLength, cMaxWeight float64
+		err = db.QueryRow(context.Background(), "SELECT width, height, length, max_weight FROM containers WHERE id=$1;", calculation.ContainerID).Scan(&cWidth, &cHeight, &cLength, &cMaxWeight)
+		if err != nil {
+			// container may be missing; continue but warn
+			container = gin.H{"error": "container not found"}
+		} else {
+			container = gin.H{"width": cWidth, "height": cHeight, "length": cLength, "max_weight": cMaxWeight}
+		}
+
+		// Fetch constraints
+		var constraints gin.H
+		var enforceLifo, enforcePriority, enforceStacking, enforceLoadCapacity bool
+		err = db.QueryRow(context.Background(), "SELECT enforce_lifo, enforce_priority, enforce_stacking, enforce_load_capacity FROM constraints WHERE id=$1;", calculation.ConstraintsID).Scan(&enforceLifo, &enforcePriority, &enforceStacking, &enforceLoadCapacity)
+		if err != nil {
+			constraints = gin.H{"error": "constraints not found"}
+		} else {
+			constraints = gin.H{"enforce_lifo": enforceLifo, "enforce_priority": enforcePriority, "enforce_stacking": enforceStacking, "enforce_load_capacity": enforceLoadCapacity}
+		}
+
+		// Fetch snapshot groups for this calculation
+		grows, err := db.Query(context.Background(), "SELECT group_id_string, name, color FROM groups WHERE calculation_id=$1;", calcID)
+		var snapGroups []gin.H
+		if err == nil {
+			defer grows.Close()
+			for grows.Next() {
+				var gid, name, color string
+				if err := grows.Scan(&gid, &name, &color); err != nil {
+					continue
+				}
+				snapGroups = append(snapGroups, gin.H{"group_id_string": gid, "name": name, "color": color})
+			}
+		}
+
+		// Fetch items for the container
+		irows, err := db.Query(context.Background(), `SELECT i.id, i.name, i.width, i.height, i.length, i.weight, i.quantity, ig.id AS group_id, ig.name AS group_name, ig.color AS group_color
+			FROM items i LEFT JOIN item_groups ig ON i.group_id = ig.id WHERE i.container_id = $1;`, calculation.ContainerID)
+		var items []gin.H
+		if err == nil {
+			defer irows.Close()
+			for irows.Next() {
+				var id int
+				var name string
+				var width, height, lengthd, weight float64
+				var quantity int
+				var groupID sql.NullInt32
+				var groupName, groupColor sql.NullString
+				if err := irows.Scan(&id, &name, &width, &height, &lengthd, &weight, &quantity, &groupID, &groupName, &groupColor); err != nil {
+					continue
+				}
+				it := gin.H{"id": id, "name": name, "width": width, "height": height, "length": lengthd, "weight": weight, "quantity": quantity}
+				if groupID.Valid {
+					it["group"] = gin.H{"id": int(groupID.Int32), "name": groupName.String, "color": groupColor.String}
+				}
+				items = append(items, it)
+			}
+		}
+
+		// Attempt to locate a calculation_results row related to this calculation via recent calculation_requests matching container/algorithm
+		var result gin.H
+		var reqID int
+		err = db.QueryRow(context.Background(), "SELECT id FROM calculation_requests WHERE container_id=$1 AND algorithm=$2 ORDER BY created_at DESC LIMIT 1;", calculation.ContainerID, calculation.Algorithm).Scan(&reqID)
+		if err == nil {
+			// fetch result
+			var resID int
+			var fillRate, totalWeight float64
+			rerr := db.QueryRow(context.Background(), "SELECT id, fill_rate, total_weight FROM calculation_results WHERE request_id=$1 LIMIT 1;", reqID).Scan(&resID, &fillRate, &totalWeight)
+			if rerr == nil {
+				// fetch placed items count
+				var placedCount int
+				_ = db.QueryRow(context.Background(), "SELECT COUNT(*) FROM placed_items WHERE result_id=$1;", resID).Scan(&placedCount)
+				result = gin.H{"id": resID, "fill_rate": fillRate, "total_weight": totalWeight, "placed_items": placedCount}
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{"calculation": gin.H{"id": calculation.ID, "algorithm": calculation.Algorithm, "created_at": calculation.CreatedAt}, "container": container, "constraints": constraints, "groups": snapGroups, "items": items, "result": result})
+	}
+}
+
 // --- Gin Middleware ---
 
 func authMiddleware() gin.HandlerFunc {
@@ -945,6 +1184,94 @@ func authMiddleware() gin.HandlerFunc {
 		// Pass user ID to the next handler
 		c.Set("user_id", claims.UserID)
 		c.Next()
+	}
+}
+
+// --- Item Groups Handlers ---
+
+type createGroupRequest struct {
+	Name  string `json:"name"`
+	Color string `json:"color"`
+}
+
+func handleGetItemGroups(db *pgxpool.Pool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		rows, err := db.Query(context.Background(), "SELECT id, name, color FROM item_groups ORDER BY id;")
+		if err != nil {
+			log.Printf("Failed to query item_groups: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load item groups"})
+			return
+		}
+		defer rows.Close()
+
+		var groups []gin.H
+		for rows.Next() {
+			var id int
+			var name, color string
+			if err := rows.Scan(&id, &name, &color); err != nil {
+				log.Printf("Failed to scan item_group row: %v", err)
+				continue
+			}
+			groups = append(groups, gin.H{"id": id, "name": name, "color": color})
+		}
+		c.JSON(http.StatusOK, groups)
+	}
+}
+
+func handleCreateItemGroup(db *pgxpool.Pool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req createGroupRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+			return
+		}
+		var newID int
+		err := db.QueryRow(context.Background(), "INSERT INTO item_groups (name, color) VALUES ($1, $2) RETURNING id;", req.Name, req.Color).Scan(&newID)
+		if err != nil {
+			log.Printf("Failed to insert item_group: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create item group"})
+			return
+		}
+		c.JSON(http.StatusCreated, gin.H{"id": newID, "name": req.Name, "color": req.Color})
+	}
+}
+
+func handleUpdateItemGroup(db *pgxpool.Pool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		idParam := c.Param("id")
+		var req createGroupRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+			return
+		}
+		cmdTag, err := db.Exec(context.Background(), "UPDATE item_groups SET name=$1, color=$2 WHERE id=$3;", req.Name, req.Color, idParam)
+		if err != nil {
+			log.Printf("Failed to update item_group %s: %v", idParam, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update item group"})
+			return
+		}
+		if cmdTag.RowsAffected() == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Item group not found"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"id": idParam, "name": req.Name, "color": req.Color})
+	}
+}
+
+func handleDeleteItemGroup(db *pgxpool.Pool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		idParam := c.Param("id")
+		cmdTag, err := db.Exec(context.Background(), "DELETE FROM item_groups WHERE id=$1;", idParam)
+		if err != nil {
+			log.Printf("Failed to delete item_group %s: %v", idParam, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete item group"})
+			return
+		}
+		if cmdTag.RowsAffected() == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Item group not found"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "deleted"})
 	}
 }
 
@@ -985,6 +1312,14 @@ func main() {
 	{
 		apiRoutes.POST("/calculate/golang", handleGoCalculation(dbPool))
 		apiRoutes.POST("/calculate/golang/cancel", handleGoCancel(dbPool))
+		// Item groups CRUD
+		apiRoutes.GET("/item-groups", handleGetItemGroups(dbPool))
+		apiRoutes.POST("/item-groups", handleCreateItemGroup(dbPool))
+		apiRoutes.PUT("/item-groups/:id", handleUpdateItemGroup(dbPool))
+		apiRoutes.DELETE("/item-groups/:id", handleDeleteItemGroup(dbPool))
+		// Calculation inspection
+		apiRoutes.GET("/calculations", handleListCalculations(dbPool))
+		apiRoutes.GET("/calculations/:id", handleGetCalculation(dbPool))
 	}
 
 	router.GET("/api/calculate/golang/stream/:job_id", handleGoStreamProxy(dbPool))
