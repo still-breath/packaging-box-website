@@ -24,7 +24,7 @@ interface DataCalculationPageProps {
   setGroups: React.Dispatch<React.SetStateAction<Group[]>>;
   setConstraints: React.Dispatch<React.SetStateAction<any>>;
   onPresetChange: (presetName: '10ft' | '20ft' | '40ft') => void;
-  onVisualize: (algorithm: string, container: Container, boxes: Box[], groups: Group[], constraints: any) => void;
+  onVisualize: (algorithm: string, container: Container, boxes: Box[], groups: Group[], constraints: any, activityName?: string) => void;
 }
 
 const DataCalculationPage = ({ 
@@ -37,6 +37,7 @@ const DataCalculationPage = ({
 
   const [selectedPreset, setSelectedPreset] = useState<'' | '10ft' | '20ft' | '40ft'>('');
   const [selectedExcelAction, setSelectedExcelAction] = useState<'' | 'IMPORT' | 'TEMPLATE'>('');
+  const [activityName, setActivityName] = useState<string>('');
 
   const handleImportClick = () => {
     fileInputRef.current?.click();
@@ -159,7 +160,7 @@ const DataCalculationPage = ({
   };
   
   const handleVisualizeClick = (algorithm: string) => {
-    onVisualize(algorithm, container, boxes, groups, constraints);
+    onVisualize(algorithm, container, boxes, groups, constraints, activityName);
   };
 
   return (
@@ -273,6 +274,10 @@ const DataCalculationPage = ({
 
       <div className="main-content">
         <div className="card">
+          <div style={{ marginBottom: '0.75rem' }}>
+            <label style={{ display: 'block', marginBottom: '0.5rem' }}>Activity Name (optional)</label>
+            <input type="text" value={activityName} onChange={(e) => setActivityName(e.target.value)} className="text-input" placeholder="e.g. Load for shipment #123" />
+          </div>
           <h3 className="card-title">BOXES TO LOAD ({boxes.length})</h3>
           <div className="box-grid box-grid-header">
               <div>Qty</div>

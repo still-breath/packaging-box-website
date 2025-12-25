@@ -39,6 +39,7 @@ interface VisualizationPageProps {
   container?: Container;
   algorithm?: string;
   initialGroups?: Group[];
+    activityName?: string;
 }
 
 const defaultContainer: Container = { width: 0, height: 0, length: 0, maxWeight: 0 };
@@ -48,7 +49,8 @@ const VisualizationPage = ({
     result = defaultResult,
     container = defaultContainer,
     algorithm = 'UNKNOWN ALGORITHM',
-    initialGroups = []
+    initialGroups = [],
+    activityName = ''
 }: VisualizationPageProps) => {
     const [settings, setSettings] = useState({
         showContainer: true, showContainerEdges: true, showGoods: true, showGoodEdges: true,
@@ -107,11 +109,19 @@ const VisualizationPage = ({
                     <div style={{marginTop: '0.5rem'}}>
                         <button className="visualize-button" onClick={async () => {
                             try {
-                                const blob = await exportExcel({ result, container, groups: initialGroups, algorithm });
+                                const payload = { result, container, groups: initialGroups, algorithm };
+                                const blob = await exportExcel(payload);
                                 const url = window.URL.createObjectURL(blob);
                                 const a = document.createElement('a');
                                 a.href = url;
-                                a.download = `visualization_${algorithm}.xlsx`;
+                                const now = new Date();
+                                const y = now.getFullYear();
+                                const m = String(now.getMonth() + 1).padStart(2, '0');
+                                const d = String(now.getDate()).padStart(2, '0');
+                                const yyyymmdd = `${y}${m}${d}`;
+                                const sanitize = (s: string) => s ? s.replace(/[^a-z0-9 _-]/gi, '').trim().replace(/\s+/g, '_').slice(0,100) : '';
+                                const base = (activityName && activityName.trim().length > 0) ? sanitize(activityName) : sanitize(algorithm || 'visualization');
+                                a.download = `${base}_${yyyymmdd}_${algorithm}.xlsx`;
                                 document.body.appendChild(a);
                                 a.click();
                                 a.remove();

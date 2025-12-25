@@ -148,6 +148,21 @@ body {
 .add-button-small { margin-top: 1rem; width: 2rem; height: 2rem; align-self: flex-start; background-color: #e5e7eb; border-radius: 9999px; font-size: 1.125rem; border: none; cursor: pointer; }
 .add-button-small:hover { background-color: #d1d5db; }
 
+/* History specific grid and styles */
+.history-table { background: white; border: 1px solid #e9eef2; border-radius: 0.5rem; overflow: hidden; }
+.history-header-grid { display: grid; grid-template-columns: 2.4fr 1fr 1fr 160px; gap: 1rem; align-items: center; padding: 0.75rem 1rem; font-weight: 800; color: #374151; background: #f6f7fb; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.04em; }
+.history-item-grid { display: grid; grid-template-columns: 2.4fr 1fr 1fr 160px; gap: 1rem; align-items: center; padding: 0.75rem 1rem; border-bottom: 1px solid #eef2f6; }
+.history-item-grid:hover { background-color: #ffffff; }
+.history-actions { display: flex; gap: 0.5rem; justify-self: end; }
+.history-action-button { min-width: 86px; padding: 0.45rem 0.6rem; border-radius: 0.25rem; border: none; cursor: pointer; font-weight: 700; }
+.history-action-button.view { background-color: #6b7280; color: white; }
+.history-action-button.view:hover { background-color: #4b5563; }
+.history-action-button.delete { background-color: #b91c1c; color: white; }
+.history-action-button.delete:hover { background-color: #991b1b; }
+
+/* Align header text for actions to the left of the actions column while keeping buttons right-aligned */
+.history-header-grid > div:last-child { text-align: left; padding-left: 0.25rem; }
+
 .login-page-container {
   display: flex;
   align-items: center;

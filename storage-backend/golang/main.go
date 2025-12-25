@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,7 +14,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"database/sql"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v4"
@@ -68,11 +68,12 @@ type Constraints struct {
 }
 
 type CalculationRequest struct {
-	Container   Container   `json:"container"`
-	Items       []Item      `json:"items"`
-	Groups      []Group     `json:"groups"`
-	Algorithm   string      `json:"algorithm"`
-	Constraints Constraints `json:"constraints"`
+	Container    Container   `json:"container"`
+	Items        []Item      `json:"items"`
+	Groups       []Group     `json:"groups"`
+	Algorithm    string      `json:"algorithm"`
+	ActivityName string      `json:"activity_name"`
+	Constraints  Constraints `json:"constraints"`
 }
 
 // --- Structs for Auth ---
@@ -277,6 +278,7 @@ func setupDatabase(pool *pgxpool.Pool) {
 		id SERIAL PRIMARY KEY,
 		user_id INTEGER REFERENCES users(id),
 		container_id INTEGER REFERENCES containers(id),
+		calculation_id INTEGER REFERENCES calculations(id),
 		algorithm VARCHAR(50) NOT NULL,
 		enforce_load_capacity BOOLEAN NOT NULL,
 		enforce_stacking BOOLEAN NOT NULL,
@@ -290,6 +292,12 @@ func setupDatabase(pool *pgxpool.Pool) {
 	}
 	log.Println("'calculation_requests' table is ready.")
 
+	// Ensure calculation_id column exists in case table was created previously
+	_, err = pool.Exec(context.Background(), `ALTER TABLE calculation_requests ADD COLUMN IF NOT EXISTS calculation_id INTEGER REFERENCES calculations(id);`)
+	if err != nil {
+		log.Printf("Warning: failed to ensure calculation_id column on calculation_requests: %v", err)
+	}
+
 	// Create Calculation Results Table
 	createCalculationResultsTable := `
 	CREATE TABLE IF NOT EXISTS calculation_results (
@@ -297,6 +305,7 @@ func setupDatabase(pool *pgxpool.Pool) {
 		request_id INTEGER REFERENCES calculation_requests(id),
 		fill_rate DECIMAL NOT NULL,
 		total_weight DECIMAL NOT NULL,
+		raw_payload JSONB,
 		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 	);`
 	_, err = pool.Exec(context.Background(), createCalculationResultsTable)
@@ -304,6 +313,12 @@ func setupDatabase(pool *pgxpool.Pool) {
 		log.Fatalf("Failed to create calculation_results table: %v\n", err)
 	}
 	log.Println("'calculation_results' table is ready.")
+
+	// Ensure raw_payload column exists for backward compatibility
+	_, err = pool.Exec(context.Background(), `ALTER TABLE calculation_results ADD COLUMN IF NOT EXISTS raw_payload JSONB;`)
+	if err != nil {
+		log.Printf("Warning: failed to ensure raw_payload column on calculation_results: %v", err)
+	}
 
 	// Create Loaded Boxes Table: store references to items loaded for a result
 	createLoadedBoxesTable := `
@@ -363,6 +378,7 @@ func setupDatabase(pool *pgxpool.Pool) {
 		container_id INTEGER REFERENCES containers(id),
 		constraints_id INTEGER REFERENCES constraints(id),
 		algorithm VARCHAR(50) NOT NULL,
+		activity_name VARCHAR(255),
 		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 	);`
 	_, err = pool.Exec(context.Background(), createCalculationsTable)
@@ -370,6 +386,12 @@ func setupDatabase(pool *pgxpool.Pool) {
 		log.Fatalf("Failed to create calculations table: %v\n", err)
 	}
 	log.Println("'calculations' table is ready.")
+
+	// Ensure activity_name column exists for calculations (added later)
+	_, err = pool.Exec(context.Background(), `ALTER TABLE calculations ADD COLUMN IF NOT EXISTS activity_name VARCHAR(255);`)
+	if err != nil {
+		log.Printf("Warning: failed to ensure activity_name column on calculations: %v", err)
+	}
 
 	// Create Groups Table (references calculations table)
 	createGroupsTable := `
@@ -387,6 +409,176 @@ func setupDatabase(pool *pgxpool.Pool) {
 		log.Fatalf("Failed to create groups table: %v\n", err)
 	}
 	log.Println("'groups' table is ready.")
+
+	// Create History Rows Table: a single entry representing a history row shown in UI
+	createHistoryTable := `
+	CREATE TABLE IF NOT EXISTS history_rows (
+		id SERIAL PRIMARY KEY,
+		calculation_id INTEGER,
+		request_id INTEGER,
+		result_id INTEGER,
+		user_id INTEGER,
+		algorithm VARCHAR(50),
+		activity_name VARCHAR(255),
+		container_id INTEGER,
+		constraints_id INTEGER,
+		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+	);`
+	_, err = pool.Exec(context.Background(), createHistoryTable)
+	if err != nil {
+		log.Fatalf("Failed to create history_rows table: %v", err)
+	}
+	log.Println("'history_rows' table is ready.")
+
+	// Create trigger function to remove related records when a history_rows row is deleted
+	// This lets the application delete only the history row and let the DB cleanup related rows.
+	createTriggerFunc := `
+CREATE OR REPLACE FUNCTION delete_related_on_history_delete() RETURNS trigger AS $$
+DECLARE
+	cid INTEGER;
+BEGIN
+	-- Remove placed items and loaded boxes for any results linked to the request
+	IF OLD.request_id IS NOT NULL THEN
+		DELETE FROM placed_items WHERE result_id IN (SELECT id FROM calculation_results WHERE request_id = OLD.request_id);
+		DELETE FROM loaded_boxes WHERE result_id IN (SELECT id FROM calculation_results WHERE request_id = OLD.request_id);
+		DELETE FROM calculation_results WHERE request_id = OLD.request_id;
+		DELETE FROM calculation_requests WHERE id = OLD.request_id;
+	END IF;
+
+	-- Remove groups, calculations, items and containers for the calculation
+	IF OLD.calculation_id IS NOT NULL THEN
+		SELECT container_id INTO cid FROM calculations WHERE id = OLD.calculation_id;
+		DELETE FROM groups WHERE calculation_id = OLD.calculation_id;
+		DELETE FROM calculations WHERE id = OLD.calculation_id;
+		IF cid IS NOT NULL THEN
+			DELETE FROM items WHERE container_id = cid;
+			DELETE FROM containers WHERE id = cid;
+		END IF;
+	END IF;
+
+	-- Remove constraints if present
+	IF OLD.constraints_id IS NOT NULL THEN
+		DELETE FROM constraints WHERE id = OLD.constraints_id;
+	END IF;
+
+	RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;`
+
+	_, err = pool.Exec(context.Background(), createTriggerFunc)
+	if err != nil {
+		log.Fatalf("Failed to create trigger function for history_rows cleanup: %v", err)
+	}
+
+	createTrigger := `
+DO $$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'history_rows_after_delete_trigger') THEN
+		CREATE TRIGGER history_rows_after_delete_trigger
+		AFTER DELETE ON history_rows
+		FOR EACH ROW EXECUTE PROCEDURE delete_related_on_history_delete();
+	END IF;
+END$$;`
+
+	_, err = pool.Exec(context.Background(), createTrigger)
+	if err != nil {
+		log.Fatalf("Failed to create history_rows delete trigger: %v", err)
+	}
+}
+
+func migrateCalculationRequestLinks(db *pgxpool.Pool) {
+	log.Println("Starting migration: populate calculation_id on calculation_requests where missing...")
+	ctx := context.Background()
+
+	rows, err := db.Query(ctx, "SELECT id, container_id, algorithm, created_at FROM calculation_requests WHERE calculation_id IS NULL;")
+	if err != nil {
+		log.Printf("Migration query failed: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	var processed, updated, skipped int
+	for rows.Next() {
+		var reqID int
+		var containerID sql.NullInt32
+		var algorithm string
+		var createdAt time.Time
+		if err := rows.Scan(&reqID, &containerID, &algorithm, &createdAt); err != nil {
+			log.Printf("Failed to scan calculation_requests row: %v", err)
+			continue
+		}
+		processed++
+		if !containerID.Valid {
+			skipped++
+			continue
+		}
+
+		// compute a 5-minute window around createdAt in Go to avoid SQL type/operator issues
+		startWindow := createdAt.Add(-5 * time.Minute)
+		endWindow := createdAt.Add(5 * time.Minute)
+		candidateRows, cerr := db.Query(ctx, "SELECT id, created_at FROM calculations WHERE container_id=$1 AND algorithm=$2 AND created_at BETWEEN $3 AND $4;", int(containerID.Int32), algorithm, startWindow, endWindow)
+		if cerr != nil {
+			log.Printf("Failed to query candidate calculations for request %d: %v", reqID, cerr)
+			skipped++
+			continue
+		}
+		var candidates []struct {
+			id int
+			ts time.Time
+		}
+		for candidateRows.Next() {
+			var cid int
+			var cts time.Time
+			if err := candidateRows.Scan(&cid, &cts); err == nil {
+				candidates = append(candidates, struct {
+					id int
+					ts time.Time
+				}{cid, cts})
+			}
+		}
+		candidateRows.Close()
+
+		if len(candidates) == 1 {
+			// update request row
+			if _, uerr := db.Exec(ctx, "UPDATE calculation_requests SET calculation_id=$1 WHERE id=$2;", candidates[0].id, reqID); uerr != nil {
+				log.Printf("Failed to update calculation_request %d -> calculation_id %d: %v", reqID, candidates[0].id, uerr)
+				skipped++
+			} else {
+				updated++
+			}
+		} else if len(candidates) > 1 {
+			var bestID int
+			bestDiff := time.Hour * 24 * 365
+			tie := false
+			for _, cand := range candidates {
+				diff := cand.ts.Sub(createdAt)
+				if diff < 0 {
+					diff = -diff
+				}
+				if diff < bestDiff {
+					bestDiff = diff
+					bestID = cand.id
+					tie = false
+				} else if diff == bestDiff {
+					tie = true
+				}
+			}
+			if tie || bestID == 0 {
+				skipped++
+			} else {
+				if _, uerr := db.Exec(ctx, "UPDATE calculation_requests SET calculation_id=$1 WHERE id=$2;", bestID, reqID); uerr != nil {
+					log.Printf("Failed to update calculation_request %d -> calculation_id %d: %v", reqID, bestID, uerr)
+					skipped++
+				} else {
+					updated++
+				}
+			}
+		} else {
+			skipped++
+		}
+	}
+
+	log.Printf("Migration finished: processed=%d updated=%d skipped=%d", processed, updated, skipped)
 }
 
 // --- Password & JWT Helpers ---
@@ -411,8 +603,9 @@ func saveCalculationResults(db *pgxpool.Pool, calculationID int, pythonResponse 
 	defer tx.Rollback(context.Background())
 
 	// Insert to calculation_requests first (log the request)
-	requestSQL := `INSERT INTO calculation_requests (user_id, container_id, algorithm, enforce_load_capacity, enforce_stacking, enforce_priority, enforce_lifo) 
-				   SELECT user_id, container_id, algorithm, c.enforce_load_capacity, c.enforce_stacking, c.enforce_priority, c.enforce_lifo 
+	// Also store calculation_id to create a deterministic mapping between calculation and request
+	requestSQL := `INSERT INTO calculation_requests (user_id, container_id, algorithm, enforce_load_capacity, enforce_stacking, enforce_priority, enforce_lifo, calculation_id) 
+				   SELECT user_id, container_id, algorithm, c.enforce_load_capacity, c.enforce_stacking, c.enforce_priority, c.enforce_lifo, calc.id 
 				   FROM calculations calc 
 				   JOIN constraints c ON calc.constraints_id = c.id 
 				   WHERE calc.id = $1 RETURNING id;`
@@ -433,12 +626,31 @@ func saveCalculationResults(db *pgxpool.Pool, calculationID int, pythonResponse 
 		totalWeight, _ = pythonResponse["totalWeight"].(float64)
 	}
 
-	// Insert to calculation_results
-	resultSQL := `INSERT INTO calculation_results (request_id, fill_rate, total_weight) VALUES ($1, $2, $3) RETURNING id;`
+	// Marshal raw payload to store it verbatim (preserve camelCase result payload)
+	rawPayloadBytes, _ := json.Marshal(pythonResponse)
+
+	// Insert to calculation_results (store raw payload JSONB for exact replay)
+	resultSQL := `INSERT INTO calculation_results (request_id, fill_rate, total_weight, raw_payload) VALUES ($1, $2, $3, $4) RETURNING id;`
 	var resultID int
-	err = tx.QueryRow(context.Background(), resultSQL, requestID, fillRate, totalWeight).Scan(&resultID)
+	err = tx.QueryRow(context.Background(), resultSQL, requestID, fillRate, totalWeight, rawPayloadBytes).Scan(&resultID)
 	if err != nil {
 		return fmt.Errorf("failed to insert calculation result: %v", err)
+	}
+
+	// Record an entry in history_rows so the UI has a single row to reference.
+	// Also used by DB trigger to cascade deletes when a history row is removed.
+	var userID int
+	var containerID sql.NullInt32
+	var constraintsID sql.NullInt32
+	var algorithm string
+	var activityName sql.NullString
+	// fetch calculation metadata
+	err = tx.QueryRow(context.Background(), "SELECT user_id, container_id, constraints_id, algorithm, activity_name FROM calculations WHERE id=$1;", calculationID).Scan(&userID, &containerID, &constraintsID, &algorithm, &activityName)
+	if err == nil {
+		insertHistorySQL := `INSERT INTO history_rows (calculation_id, request_id, result_id, user_id, algorithm, activity_name, container_id, constraints_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8);`
+		_, _ = tx.Exec(context.Background(), insertHistorySQL, calculationID, requestID, resultID, userID, algorithm, activityName, containerID, constraintsID)
+	} else {
+		log.Printf("Warning: could not populate history_rows metadata for calculation %d: %v", calculationID, err)
 	}
 
 	// Parse placed items from Python response (handle both formats)
@@ -468,27 +680,21 @@ func saveCalculationResults(db *pgxpool.Pool, calculationID int, pythonResponse 
 				itemName, _ := itemData["id"].(string)
 				rotation := 0 // default rotation since not provided in BLF response
 
-				// Find item_id from database based on item name/identifier using multiple fallback strategies
 				var itemDBID int
 				var findErr error
-				// Try to match by external_id first (exact), then by name (various strategies).
-				// Also try matching by base name before underscore so "Box elektronik_12" matches "Box elektronik".
 				baseName := itemName
 				if idx := strings.Index(itemName, "_"); idx != -1 {
 					baseName = itemName[:idx]
 				}
 
-				queries := []struct{
+				queries := []struct {
 					sql  string
 					args []interface{}
 				}{
 					{"SELECT id FROM items WHERE external_id = $1 LIMIT 1;", []interface{}{itemName}},
+					{"SELECT id FROM items WHERE external_id ILIKE $1 LIMIT 1;", []interface{}{baseName}},
 					{"SELECT id FROM items WHERE name = $1 LIMIT 1;", []interface{}{itemName}},
 					{"SELECT id FROM items WHERE name = $1 LIMIT 1;", []interface{}{baseName}},
-					{"SELECT id FROM items WHERE name ILIKE $1 LIMIT 1;", []interface{}{baseName+"%"}},
-					{"SELECT id FROM items WHERE name ILIKE $1 LIMIT 1;", []interface{}{itemName+"%"}},
-					{"SELECT id FROM items WHERE name ILIKE $1 LIMIT 1;", []interface{}{"%"+itemName+"%"}},
-					{"SELECT id FROM items WHERE name ILIKE $1 LIMIT 1;", []interface{}{"%"+itemName}},
 				}
 				found := false
 				for _, q := range queries {
@@ -499,10 +705,9 @@ func saveCalculationResults(db *pgxpool.Pool, calculationID int, pythonResponse 
 					}
 				}
 				if !found {
-					log.Printf("Could not find item ID for %s, skipping: %v", itemName, findErr)
+					log.Printf("Could not find item ID for %s, skipping placed item to avoid mismatch", itemName)
 					continue
 				}
-
 
 				// Insert a loaded_box record referencing the existing item (no duplicate item properties)
 				var loadedBoxID int
@@ -836,10 +1041,10 @@ func handleGoCalculation(db *pgxpool.Pool) gin.HandlerFunc {
 			algorithm = "PYTHON_BLF"
 		}
 
-		// 3. Insert Calculation
+		// 3. Insert Calculation (include optional activity_name)
 		var calculationID int
-		calculationSQL := `INSERT INTO calculations (user_id, container_id, constraints_id, algorithm) VALUES ($1, $2, $3, $4) RETURNING id;`
-		err = tx.QueryRow(context.Background(), calculationSQL, userID, containerID, constraintsID, algorithm).Scan(&calculationID)
+		calculationSQL := `INSERT INTO calculations (user_id, container_id, constraints_id, algorithm, activity_name) VALUES ($1, $2, $3, $4, $5) RETURNING id;`
+		err = tx.QueryRow(context.Background(), calculationSQL, userID, containerID, constraintsID, algorithm, requestData.ActivityName).Scan(&calculationID)
 		if err != nil {
 			log.Printf("Failed to insert calculation: %v, userID: %d, containerID: %d, constraintsID: %d", err, userID, containerID, constraintsID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save calculation data."})
@@ -847,7 +1052,7 @@ func handleGoCalculation(db *pgxpool.Pool) gin.HandlerFunc {
 		}
 
 		// 4. Insert Groups first (needed for item_groups reference)
-		groupMap := make(map[string]int) // map group_id_string to group_id
+		groupMap := make(map[string]int)        // map group_id_string to group_id
 		groupNameMap := make(map[string]string) // map group_id_string to display name
 		for _, group := range requestData.Groups {
 			// First check if item_group exists, if not create it
@@ -1050,7 +1255,7 @@ func handleListCalculations(db *pgxpool.Pool) gin.HandlerFunc {
 		}
 		userID := userIDVal.(int)
 
-		rows, err := db.Query(context.Background(), "SELECT id, algorithm, created_at FROM calculations WHERE user_id=$1 ORDER BY created_at DESC LIMIT 200;", userID)
+		rows, err := db.Query(context.Background(), "SELECT id, algorithm, activity_name, created_at FROM calculations WHERE user_id=$1 ORDER BY created_at DESC LIMIT 200;", userID)
 		if err != nil {
 			log.Printf("Failed to query calculations: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load calculations"})
@@ -1062,12 +1267,17 @@ func handleListCalculations(db *pgxpool.Pool) gin.HandlerFunc {
 		for rows.Next() {
 			var id int
 			var algorithm string
+			var activityName sql.NullString
 			var createdAt time.Time
-			if err := rows.Scan(&id, &algorithm, &createdAt); err != nil {
+			if err := rows.Scan(&id, &algorithm, &activityName, &createdAt); err != nil {
 				log.Printf("Failed to scan calculation row: %v", err)
 				continue
 			}
-			out = append(out, gin.H{"id": id, "algorithm": algorithm, "created_at": createdAt})
+			item := gin.H{"id": id, "algorithm": algorithm, "created_at": createdAt}
+			if activityName.Valid {
+				item["activity_name"] = activityName.String
+			}
+			out = append(out, item)
 		}
 		c.JSON(http.StatusOK, out)
 	}
@@ -1085,15 +1295,16 @@ func handleGetCalculation(db *pgxpool.Pool) gin.HandlerFunc {
 		calcID := c.Param("id")
 
 		// Fetch calculation meta
-		var calculation struct{
-			ID int
-			UserID int
-			ContainerID int
+		var calculation struct {
+			ID            int
+			UserID        int
+			ContainerID   int
 			ConstraintsID int
-			Algorithm string
-			CreatedAt time.Time
+			Algorithm     string
+			ActivityName  sql.NullString
+			CreatedAt     time.Time
 		}
-		err := db.QueryRow(context.Background(), "SELECT id, user_id, container_id, constraints_id, algorithm, created_at FROM calculations WHERE id=$1;", calcID).Scan(&calculation.ID, &calculation.UserID, &calculation.ContainerID, &calculation.ConstraintsID, &calculation.Algorithm, &calculation.CreatedAt)
+		err := db.QueryRow(context.Background(), "SELECT id, user_id, container_id, constraints_id, algorithm, activity_name, created_at FROM calculations WHERE id=$1;", calcID).Scan(&calculation.ID, &calculation.UserID, &calculation.ContainerID, &calculation.ConstraintsID, &calculation.Algorithm, &calculation.ActivityName, &calculation.CreatedAt)
 		if err != nil {
 			log.Printf("Failed to fetch calculation %s: %v", calcID, err)
 			c.JSON(http.StatusNotFound, gin.H{"error": "Calculation not found"})
@@ -1163,24 +1374,196 @@ func handleGetCalculation(db *pgxpool.Pool) gin.HandlerFunc {
 			}
 		}
 
-		// Attempt to locate a calculation_results row related to this calculation via recent calculation_requests matching container/algorithm
+		// Attempt to locate a calculation_results row related to this calculation.
+		// First try a direct mapping via calculation_requests.calculation_id for deterministic lookup.
+		// Fallback to a time-window-based lookup for older DB rows that may not have calculation_id populated.
 		var result gin.H
 		var reqID int
-		err = db.QueryRow(context.Background(), "SELECT id FROM calculation_requests WHERE container_id=$1 AND algorithm=$2 ORDER BY created_at DESC LIMIT 1;", calculation.ContainerID, calculation.Algorithm).Scan(&reqID)
+		// try direct mapping
+		err = db.QueryRow(context.Background(), "SELECT id FROM calculation_requests WHERE calculation_id=$1 LIMIT 1;", calculation.ID).Scan(&reqID)
+		if err != nil {
+			// fallback: Prefer requests created around the same time as the calculation to avoid picking an unrelated recent request
+			// compute window in Go to avoid SQL operator/type issues
+			startWindow := calculation.CreatedAt.Add(-5 * time.Minute)
+			endWindow := calculation.CreatedAt.Add(5 * time.Minute)
+			err = db.QueryRow(context.Background(), "SELECT id FROM calculation_requests WHERE container_id=$1 AND algorithm=$2 AND created_at BETWEEN $3 AND $4 ORDER BY created_at DESC LIMIT 1;", calculation.ContainerID, calculation.Algorithm, startWindow, endWindow).Scan(&reqID)
+		}
 		if err == nil {
-			// fetch result
+			// fetch result (also try to read raw_payload if available)
 			var resID int
 			var fillRate, totalWeight float64
-			rerr := db.QueryRow(context.Background(), "SELECT id, fill_rate, total_weight FROM calculation_results WHERE request_id=$1 LIMIT 1;", reqID).Scan(&resID, &fillRate, &totalWeight)
+			var rawPayloadBytes []byte
+			rerr := db.QueryRow(context.Background(), "SELECT id, fill_rate, total_weight, raw_payload FROM calculation_results WHERE request_id=$1 LIMIT 1;", reqID).Scan(&resID, &fillRate, &totalWeight, &rawPayloadBytes)
 			if rerr == nil {
-				// fetch placed items count
-				var placedCount int
-				_ = db.QueryRow(context.Background(), "SELECT COUNT(*) FROM placed_items WHERE result_id=$1;", resID).Scan(&placedCount)
-				result = gin.H{"id": resID, "fill_rate": fillRate, "total_weight": totalWeight, "placed_items": placedCount}
+				// If raw payload present, prefer to use it to construct the returned result (but keep snake_case keys expected by frontend)
+				if len(rawPayloadBytes) > 0 {
+					var payload map[string]interface{}
+					if err := json.Unmarshal(rawPayloadBytes, &payload); err == nil {
+						// Build placed_items in snake_case to remain compatible with frontend history view
+						var placedItems []gin.H
+						if pitems, ok := payload["placedItems"].([]interface{}); ok {
+							for _, pi := range pitems {
+								if imap, ok := pi.(map[string]interface{}); ok {
+									ci := gin.H{"id": imap["id"], "x": imap["x"], "y": imap["y"], "z": imap["z"], "length": imap["length"], "width": imap["width"], "height": imap["height"], "weight": imap["weight"]}
+									// rotation field fallback handling
+									if rot, ok := imap["rotation"].(float64); ok {
+										ci["rotation"] = int(rot)
+									} else if rot2, ok := imap["rotation_type"].(float64); ok {
+										ci["rotation"] = int(rot2)
+									}
+									if color, ok := imap["color"].(string); ok {
+										ci["color"] = color
+									}
+									placedItems = append(placedItems, ci)
+								}
+							}
+						}
+
+						// fill and weight from payload if present
+						fr := fillRate
+						if f, ok := payload["fillRate"].(float64); ok && f != 0 {
+							fr = f
+						}
+						tw := totalWeight
+						if t, ok := payload["totalWeight"].(float64); ok && t != 0 {
+							tw = t
+						}
+
+						result = gin.H{"id": resID, "fill_rate": fr, "total_weight": tw, "placed_items": placedItems}
+					} else {
+						// JSON unmarshal failed, fallback to stored numeric fields and DB placed_items
+						// fetch placed items details from DB
+						var placedItems []gin.H
+						prows, perr := db.Query(context.Background(), `SELECT lb.item_name, pi.position_x, pi.position_y, pi.position_z, pi.rotation_type, i.length, i.width, i.height, i.weight, ig.color
+										FROM placed_items pi
+										JOIN loaded_boxes lb ON lb.id = pi.loaded_box_id
+										LEFT JOIN items i ON i.id = pi.item_id
+										LEFT JOIN item_groups ig ON i.group_id = ig.id
+										WHERE pi.result_id=$1;`, resID)
+						if perr == nil {
+							defer prows.Close()
+							for prows.Next() {
+								var itemName string
+								var posX, posY, posZ float64
+								var rotation int
+								var lengthd, widthd, heightd, weight float64
+								var color sql.NullString
+								if err := prows.Scan(&itemName, &posX, &posY, &posZ, &rotation, &lengthd, &widthd, &heightd, &weight, &color); err != nil {
+									log.Printf("Failed to scan placed item row: %v", err)
+									continue
+								}
+								ci := gin.H{"id": itemName, "x": posX, "y": posY, "z": posZ, "rotation": rotation, "length": lengthd, "width": widthd, "height": heightd, "weight": weight}
+								if color.Valid {
+									ci["color"] = color.String
+								}
+								placedItems = append(placedItems, ci)
+							}
+						}
+						result = gin.H{"id": resID, "fill_rate": fillRate, "total_weight": totalWeight, "placed_items": placedItems}
+					}
+				} else {
+					// No raw payload: fallback to stored numeric fields and DB placed_items
+					var placedItems []gin.H
+					prows, perr := db.Query(context.Background(), `SELECT lb.item_name, pi.position_x, pi.position_y, pi.position_z, pi.rotation_type, i.length, i.width, i.height, i.weight, ig.color
+										FROM placed_items pi
+										JOIN loaded_boxes lb ON lb.id = pi.loaded_box_id
+										LEFT JOIN items i ON i.id = pi.item_id
+										LEFT JOIN item_groups ig ON i.group_id = ig.id
+										WHERE pi.result_id=$1;`, resID)
+					if perr == nil {
+						defer prows.Close()
+						for prows.Next() {
+							var itemName string
+							var posX, posY, posZ float64
+							var rotation int
+							var lengthd, widthd, heightd, weight float64
+							var color sql.NullString
+							if err := prows.Scan(&itemName, &posX, &posY, &posZ, &rotation, &lengthd, &widthd, &heightd, &weight, &color); err != nil {
+								log.Printf("Failed to scan placed item row: %v", err)
+								continue
+							}
+							ci := gin.H{"id": itemName, "x": posX, "y": posY, "z": posZ, "rotation": rotation, "length": lengthd, "width": widthd, "height": heightd, "weight": weight}
+							if color.Valid {
+								ci["color"] = color.String
+							}
+							placedItems = append(placedItems, ci)
+						}
+					}
+					result = gin.H{"id": resID, "fill_rate": fillRate, "total_weight": totalWeight, "placed_items": placedItems}
+				}
 			}
 		}
 
 		c.JSON(http.StatusOK, gin.H{"calculation": gin.H{"id": calculation.ID, "algorithm": calculation.Algorithm, "created_at": calculation.CreatedAt}, "container": container, "constraints": constraints, "groups": snapGroups, "items": items, "result": result})
+	}
+}
+
+// Delete a calculation and most related records (if owned by user)
+func handleDeleteCalculation(db *pgxpool.Pool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userIDVal, exists := c.Get("user_id")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+			return
+		}
+		userID := userIDVal.(int)
+
+		calcIDParam := c.Param("id")
+
+		// Fetch calculation row
+		var dbUserID int
+		var containerID sql.NullInt32
+		var constraintsID sql.NullInt32
+		var algorithm string
+		var createdAt time.Time
+		err := db.QueryRow(context.Background(), "SELECT id, user_id, container_id, constraints_id, algorithm, created_at FROM calculations WHERE id=$1;", calcIDParam).Scan(new(int), &dbUserID, &containerID, &constraintsID, &algorithm, &createdAt)
+		if err != nil {
+			log.Printf("Failed to fetch calculation %s for delete: %v", calcIDParam, err)
+			c.JSON(http.StatusNotFound, gin.H{"error": "Calculation not found"})
+			return
+		}
+		if dbUserID != userID {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Not allowed"})
+			return
+		}
+
+		// Simplified delete flow: delete the single history row. A DB trigger will
+		// cascade-cleanup related rows (placed_items, loaded_boxes, calculation_results,
+		// calculation_requests, calculations, items, containers, constraints).
+		tx, err := db.Begin(context.Background())
+		if err != nil {
+			log.Printf("Failed to begin tx for delete calculation: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete calculation"})
+			return
+		}
+		defer func() {
+			if tx != nil {
+				_ = tx.Rollback(context.Background())
+			}
+		}()
+
+		ct, err := tx.Exec(context.Background(), "DELETE FROM history_rows WHERE calculation_id=$1;", calcIDParam)
+		if err != nil {
+			log.Printf("Failed to delete history row for calculation %s: %v", calcIDParam, err)
+			_ = tx.Rollback(context.Background())
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete calculation", "details": []string{err.Error()}})
+			return
+		}
+		if ct.RowsAffected() == 0 {
+			// No history row existed — nothing to delete via simplified path
+			_ = tx.Rollback(context.Background())
+			c.JSON(http.StatusNotFound, gin.H{"error": "History row not found"})
+			return
+		}
+
+		if err := tx.Commit(context.Background()); err != nil {
+			log.Printf("Failed to commit delete transaction for calc %s: %v", calcIDParam, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete calculation", "details": []string{err.Error()}})
+			return
+		}
+		tx = nil
+
+		c.JSON(http.StatusOK, gin.H{"status": "deleted"})
 	}
 }
 
@@ -1316,6 +1699,8 @@ func main() {
 	defer dbPool.Close()
 
 	setupDatabase(dbPool)
+	// Run migration to populate calculation_id for older calculation_requests
+	migrateCalculationRequestLinks(dbPool)
 
 	router := gin.Default()
 
@@ -1352,6 +1737,7 @@ func main() {
 		// Calculation inspection
 		apiRoutes.GET("/calculations", handleListCalculations(dbPool))
 		apiRoutes.GET("/calculations/:id", handleGetCalculation(dbPool))
+		apiRoutes.DELETE("/calculations/:id", handleDeleteCalculation(dbPool))
 	}
 
 	router.GET("/api/calculate/golang/stream/:job_id", handleGoStreamProxy(dbPool))

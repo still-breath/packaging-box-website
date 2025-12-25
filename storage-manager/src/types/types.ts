@@ -58,6 +58,7 @@ export interface CalculationRequest {
     enforcePriority: boolean;
     enforceLIFO: boolean;
   };
+  activity_name?: string;
 }
 
 // --- Response Types ---

@@ -140,3 +140,36 @@ export const deleteItemGroup = async (id: number | string, token: string | null)
   }
   return await resp.json();
 };
+
+// --- Calculations / History ---
+export const getCalculations = async (token: string | null) => {
+  const headers: any = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const resp = await fetch(`${API_BASE_URL}/api/calculations`, { headers });
+  if (!resp.ok) throw new Error('Failed to fetch calculations');
+  return await resp.json();
+};
+
+export const getCalculationById = async (id: number | string, token: string | null) => {
+  const headers: any = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const resp = await fetch(`${API_BASE_URL}/api/calculations/${id}`, { headers });
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(txt || 'Failed to fetch calculation');
+  }
+  return await resp.json();
+};
+
+export const deleteCalculation = async (id: number | string, token: string | null) => {
+  if (!token) throw new Error('Authentication required');
+  const resp = await fetch(`${API_BASE_URL}/api/calculations/${id}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
+  });
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(txt || 'Failed to delete calculation');
+  }
+  return await resp.json();
+};

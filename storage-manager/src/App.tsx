@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Header from './components/Header';
 import DataCalculationPage from './pages/DataCalculation';
 import VisualizationPage from './pages/VisualizationPage';
+import HistoryPage from './pages/History';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import { Box, Group, Container, CalculationResult, ApiResponse } from './types/types';
@@ -14,7 +15,7 @@ import './App.css';
 
 export default function App() {
   const [token, setToken] = useState<string | null>(null);
-  const [page, setPage] = useState<'data' | 'visualization'>('data');
+  const [page, setPage] = useState<'data' | 'visualization' | 'history'>('data');
   const [authPage, setAuthPage] = useState<'login' | 'register'>('login');
 
   // Data state
@@ -31,11 +32,56 @@ export default function App() {
   // UI State
   const [calculationResult, setCalculationResult] = useState<CalculationResult | null>(null);
   const [usedAlgorithm, setUsedAlgorithm] = useState<string>('');
+    const [activityName, setActivityName] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [calculationLog, setCalculationLog] = useState<string[] | null>(null);
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
   const [eventSource, setEventSource] = useState<EventSource | null>(null);
+
+  // View a saved calculation from History: fetch details and set visualization state
+  const handleViewSaved = async (calculationId: number | string) => {
+    if (!token) {
+      setError('You must be logged in to view history');
+      return;
+    }
+    try {
+      setIsLoading(true);
+      // lazy import api function to avoid top-level circular issues
+      const { getCalculationById } = await import('./api');
+      const data: any = await getCalculationById(calculationId, token);
+      // build CalculationResult shape
+      const result = data.result || {};
+      const placed = (result.placed_items || []).map((p: any) => ({
+        id: p.id || '',
+        x: p.x || 0,
+        y: p.y || 0,
+        z: p.z || 0,
+        length: p.length || 0,
+        width: p.width || 0,
+        height: p.height || 0,
+        weight: p.weight || 0,
+        color: p.color || '#CCCCCC'
+      }));
+
+      setCalculationResult({ fillRate: result.fill_rate || 0, totalWeight: result.total_weight || 0, placedItems: placed, unplacedItems: [] });
+
+      if (data.container) {
+        setContainerData({ width: data.container.width || 0, height: data.container.height || 0, length: data.container.length || 0, maxWeight: data.container.max_weight || 0 });
+      }
+      if (data.groups) {
+        setGroups((data.groups || []).map((g: any, idx: number) => ({ id: String(g.group_id_string || idx), name: g.name || 'Group', color: g.color || '#CCCCCC' })));
+      }
+      setUsedAlgorithm((data.calculation && data.calculation.algorithm) || 'SAVED_CALCULATION');
+      setActivityName((data.calculation && data.calculation.activity_name) || '');
+      setPage('visualization');
+    } catch (e: any) {
+      console.error('Failed to load saved calculation', e);
+      setError(e.message || 'Failed to load saved calculation');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // append a log line keeping at most 5 recent entries
   const appendLog = (line: string) => {
@@ -114,7 +160,7 @@ export default function App() {
     setGroups(getDefaultGroups());
   };
 
-  const handleVisualize = async (algorithm: string, container: Container, currentBoxes: Box[], currentGroups: Group[], currentConstraints: any) => {
+  const handleVisualize = async (algorithm: string, container: Container, currentBoxes: Box[], currentGroups: Group[], currentConstraints: any, activityName?: string) => {
     if (!token) {
       setError('You must be logged in to perform a calculation.');
       return;
@@ -128,10 +174,13 @@ export default function App() {
         items: currentBoxes, 
         groups: currentGroups, 
         algorithm,
-        constraints: currentConstraints
+      constraints: currentConstraints,
+      activity_name: activityName || ''
     };
 
     try {
+      // store activity name for visualization/export
+      setActivityName(activityName || '');
       // For Python GA we use streaming endpoint to show logs in realtime
       if (algorithm === 'PYTHON_GA' || algorithm === 'PYTHON_CLPTAC') {
         // Start job via Go backend (authenticated) which in turn starts Python GA job
@@ -236,6 +285,9 @@ export default function App() {
     >
       <Header page={page} setPage={setPage} onLogout={handleLogout} />
       
+      {page === 'history' && (
+        <HistoryPage onView={handleViewSaved} token={token} />
+      )}
       {page === 'data' && (
         <DataCalculationPage 
           container={containerData}
@@ -257,6 +309,7 @@ export default function App() {
           container={containerData}
           algorithm={usedAlgorithm}
           initialGroups={groups}
+          activityName={activityName}
         />
       )}
       

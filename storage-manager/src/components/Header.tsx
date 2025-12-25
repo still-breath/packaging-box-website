@@ -3,8 +3,8 @@ import React from 'react';
 import './Header.css';
 
 interface HeaderProps {
-  page: 'data' | 'visualization';
-  setPage: (page: 'data' | 'visualization') => void;
+  page: 'data' | 'visualization' | 'history';
+  setPage: (page: 'data' | 'visualization' | 'history') => void;
   onLogout: () => void;
 }
 
@@ -16,6 +16,7 @@ const Header = ({ page, setPage, onLogout }: HeaderProps) => (
       <nav className="header-nav">
         <button onClick={() => setPage('data')} className={`nav-button ${page === 'data' ? 'active' : ''}`}>Data & Calculation</button>
         <button onClick={() => setPage('visualization')} className={`nav-button ${page === 'visualization' ? 'active' : ''}`}>Visualization</button>
+        <button onClick={() => setPage('history')} className={`nav-button ${page === 'history' ? 'active' : ''}`}>History</button>
       </nav>
     </div>
     <div className="header-right">
