@@ -19,9 +19,10 @@ export default function App() {
   const [authPage, setAuthPage] = useState<'login' | 'register'>('login');
 
   // Data state
-  const [containerData, setContainerData] = useState<Container>(presets['20ft'].container);
-  const [boxes, setBoxes] = useState<Box[]>(presets['20ft'].boxes);
-  const [groups, setGroups] = useState<Group[]>(getDefaultGroups());
+  // Start with empty workspace (no preset selected). User can pick a preset
+  const [containerData, setContainerData] = useState<Container>({ length: 0, width: 0, height: 0, maxWeight: 0 });
+  const [boxes, setBoxes] = useState<Box[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
   const [constraints, setConstraints] = useState({
     enforceLoadCapacity: true,
     enforceStacking: false,
@@ -97,18 +98,6 @@ export default function App() {
     const storedToken = localStorage.getItem('authToken');
     if (storedToken) {
       setToken(storedToken);
-      // fetch groups from backend
-      (async () => {
-        try {
-          const groupsFromApi = await getItemGroups(storedToken);
-          if (groupsFromApi && groupsFromApi.length) {
-            // Map to frontend Group type (id as string)
-            setGroups(groupsFromApi.map(g => ({ id: String(g.id), name: g.name, color: g.color })));
-          }
-        } catch (err) {
-          console.warn('Failed to load groups from API:', err);
-        }
-      })();
     }
   }, []);
 
@@ -153,7 +142,14 @@ export default function App() {
     setPage('data'); // Reset to default page
   };
 
-  const handlePresetChange = (presetName: '10ft' | '20ft' | '40ft') => {
+  const handlePresetChange = (presetName: '' | '10ft' | '20ft' | '40ft') => {
+    if (!presetName) {
+      // clear to empty editable state
+      setContainerData({ length: 0, width: 0, height: 0, maxWeight: 0 });
+      setBoxes([]);
+      setGroups([]);
+      return;
+    }
     const preset = presets[presetName];
     setContainerData(preset.container);
     setBoxes(preset.boxes);

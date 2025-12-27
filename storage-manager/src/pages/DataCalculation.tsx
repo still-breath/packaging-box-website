@@ -23,7 +23,7 @@ interface DataCalculationPageProps {
   setBoxes: React.Dispatch<React.SetStateAction<Box[]>>;
   setGroups: React.Dispatch<React.SetStateAction<Group[]>>;
   setConstraints: React.Dispatch<React.SetStateAction<any>>;
-  onPresetChange: (presetName: '10ft' | '20ft' | '40ft') => void;
+  onPresetChange: (presetName: '' | '10ft' | '20ft' | '40ft') => void;
   onVisualize: (algorithm: string, container: Container, boxes: Box[], groups: Group[], constraints: any, activityName?: string) => void;
 }
 
@@ -103,14 +103,14 @@ const DataCalculationPage = ({
       const name = `Group ${groups.length + 1}`;
       const color = `#${Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')}`;
       const token = localStorage.getItem('authToken');
-      if (token) {
+      const hasServerGroups = groups.some(g => /^[0-9]+$/.test(String(g.id)));
+      if (token && hasServerGroups) {
         // try to persist to backend first
         createItemGroup(name, color, token).then((res: any) => {
           const created = { id: String(res.id), name: res.name, color: res.color } as Group;
           setGroups(prevGroups => [...prevGroups, created]);
         }).catch(err => {
           console.error('Failed to create group on server', err);
-          // fallback to local-only group
           const newGroup: Group = { id: `${Date.now()}`, name, color };
           setGroups(prevGroups => [...prevGroups, newGroup]);
           alert('Group created locally but failed to persist to server.');
@@ -118,15 +118,14 @@ const DataCalculationPage = ({
         return;
       }
 
-      // No token — create locally only
-      const newGroup: Group = { id: `${Date.now()}`, name, color };
+      const newGroup: Group = { id: `local-${Date.now()}`, name, color };
       setGroups(prevGroups => [...prevGroups, newGroup]);
   };
 
   const removeGroup = (idToRemove: string) => {
       const token = localStorage.getItem('authToken');
-      if (token) {
-        // optimistic remove
+      const isServerId = /^[0-9]+$/.test(String(idToRemove));
+      if (token && isServerId) {
         const prev = groups;
         setGroups(prevGroups => prevGroups.filter(group => group.id !== idToRemove));
         deleteItemGroup(idToRemove, token).catch(err => {
@@ -136,6 +135,7 @@ const DataCalculationPage = ({
         });
         return;
       }
+      // local-only id or not logged in — just remove locally
       setGroups(prevGroups => prevGroups.filter(group => group.id !== idToRemove));
   };
 
@@ -147,7 +147,8 @@ const DataCalculationPage = ({
           group.id === id ? { ...group, [field]: value } : group
       ));
 
-      if (token) {
+      const isServerId = /^[0-9]+$/.test(String(id));
+      if (token && isServerId) {
         const g = (groups.find(gr => gr.id === id) || { name: '', color: '' });
         const newName = field === 'name' ? value : g.name;
         const newColor = field === 'color' ? value : g.color;
@@ -172,10 +173,10 @@ const DataCalculationPage = ({
                   <div style={{display: 'flex', gap: '0.5rem', alignItems: 'center'}}>
                     <select
                       onChange={(e) => {
-                        const val = e.target.value as '' | '10ft' | '20ft' | '40ft';
-                        setSelectedPreset(val);
-                        if (val) onPresetChange(val as '10ft' | '20ft' | '40ft');
-                      }}
+                          const val = e.target.value as '' | '10ft' | '20ft' | '40ft';
+                          setSelectedPreset(val);
+                          onPresetChange(val);
+                        }}
                       value={selectedPreset}
                       style={{
                         padding: '0.35rem 0.5rem',
@@ -278,7 +279,10 @@ const DataCalculationPage = ({
             <label style={{ display: 'block', marginBottom: '0.5rem' }}>Activity Name (optional)</label>
             <input type="text" value={activityName} onChange={(e) => setActivityName(e.target.value)} className="text-input" placeholder="e.g. Load for shipment #123" />
           </div>
-          <h3 className="card-title">BOXES TO LOAD ({boxes.length})</h3>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <h3 className="card-title" style={{ margin: 0 }}>BOXES TO LOAD ({boxes.length})</h3>
+            <button onClick={addBox} className="add-button-small" aria-label="Add box" style={{ marginLeft: '0.5rem' }}>+</button>
+          </div>
           <div className="box-grid box-grid-header">
               <div>Qty</div>
               <div>Dimensions (L,W,H)</div>
@@ -318,10 +322,12 @@ const DataCalculationPage = ({
                 ))}
             </div>
           </div>
-          <button onClick={addBox} className="add-button-small">+</button>
         </div>
         <div className="card">
-          <h3 className="card-title">GROUPS ({groups.length})</h3>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <h3 className="card-title" style={{ margin: 0 }}>GROUPS ({groups.length})</h3>
+            <button onClick={addGroup} className="add-button-small" aria-label="Add group" style={{ marginLeft: '0.5rem' }}>+</button>
+          </div>
            <div className="scrollable-list-container">
             <div className="item-list">
                 {groups.map(group => (
@@ -340,7 +346,6 @@ const DataCalculationPage = ({
                 ))}
             </div>
            </div>
-           <button onClick={addGroup} className="add-button-small">+</button>
         </div>
       </div>
     </div>
