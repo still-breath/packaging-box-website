@@ -13,6 +13,16 @@ def run_ga_packing(container_data: Dict, items_data: List[Dict], groups_data: Li
         if has_priority and not constraints.get('enforcePriority', False):
             return {"error": "Priority diberikan pada beberapa kotak tetapi 'enforcePriority' belum diaktifkan. Aktifkan 'enforcePriority' sebelum menggunakan priority."}
 
+        # Validate: do not allow stacking-related fields when EnforceStacking is off
+        has_stacking = any(('max_stack_weight' in item and item.get('max_stack_weight') is not None) for item in items_data)
+        if has_stacking and not constraints.get('enforceStacking', False):
+            return {"error": "Field stacking (max_stack_weight) diberikan tetapi 'Enforce Stacking' belum diaktifkan. Aktifkan 'Enforce Stacking' sebelum menggunakan nilai stacking."}
+
+        # Validate: do not allow destination_group when EnforceLIFO is off
+        has_lifo = any(('destination_group' in item and item.get('destination_group') is not None) for item in items_data)
+        if has_lifo and not constraints.get('enforceLIFO', False):
+            return {"error": "Field LIFO (destination_group) diberikan tetapi 'Enforce LIFO' belum diaktifkan. Aktifkan 'Enforce LIFO' sebelum menggunakan nilai destination_group."}
+
         container = AlgoContainer(
             name='container',
             length=container_data['length'],
