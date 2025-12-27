@@ -13,6 +13,10 @@ def run_clp_packing(container_data: Dict, items_data: List[Dict], groups_data: L
 
     try:
         safe_log("CLPTAC: preparing data...")
+        # Validate: do not allow priority values when EnforcePriority is off
+        has_priority = any(('priority' in item and item.get('priority') is not None) for item in items_data)
+        if has_priority and not constraints.get('enforcePriority', False):
+            return {"error": "Priority diberikan pada beberapa kotak tetapi 'enforcePriority' belum diaktifkan. Aktifkan 'enforcePriority' sebelum menggunakan priority."}
         container = CLPContainer(
             length=container_data['length'],
             width=container_data['width'],

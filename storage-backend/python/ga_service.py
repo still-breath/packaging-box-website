@@ -8,6 +8,11 @@ def run_ga_packing(container_data: Dict, items_data: List[Dict], groups_data: Li
     Membungkus algoritma GA dengan penanganan nilai None yang lebih baik.
     """
     try:
+        # Validate: do not allow priority values when EnforcePriority is off
+        has_priority = any(('priority' in item and item.get('priority') is not None) for item in items_data)
+        if has_priority and not constraints.get('enforcePriority', False):
+            return {"error": "Priority diberikan pada beberapa kotak tetapi 'enforcePriority' belum diaktifkan. Aktifkan 'enforcePriority' sebelum menggunakan priority."}
+
         container = AlgoContainer(
             name='container',
             length=container_data['length'],
