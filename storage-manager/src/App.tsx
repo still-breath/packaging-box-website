@@ -193,8 +193,8 @@ export default function App() {
         const jobId = startData.job_id;
         setCurrentJobId(jobId);
 
-        // Prepare log modal with a connecting message so modal isn't empty
-        setCalculationLog([`Connecting to job ${jobId}...`]);
+        // Prepare log modal with connecting messages so modal isn't empty
+        setCalculationLog([`Connecting to job ${jobId}...`, 'Waiting for algorithm to finish...']);
 
         // Open EventSource to receive logs and final result proxied by Go
         const es = new EventSource(`http://localhost:8080/api/calculate/golang/stream/${jobId}`);
@@ -205,7 +205,7 @@ export default function App() {
           console.log('Received SSE message:', ev.data);
           appendLog(ev.data);
         };
-        es.addEventListener('done', async (ev: any) => {
+            es.addEventListener('done', async (ev: any) => {
           console.log('Received done event:', ev.data);
           try {
             const data = JSON.parse(ev.data);
@@ -217,7 +217,9 @@ export default function App() {
               setCalculationResult(data as CalculationResult);
               setContainerData(container);
               setUsedAlgorithm(algorithm);
-              setPage('visualization');
+                  setPage('visualization');
+                  // Auto-close the log modal shortly after the result is visualized
+                  try { setTimeout(() => setCalculationLog(null), 1200); } catch (e) { /* ignore */ }
             }
           } catch (err) {
             console.error('Failed to parse final result', err);
@@ -256,6 +258,8 @@ export default function App() {
       setUsedAlgorithm(algorithm);
       if ('logs' in resultData) setCalculationLog((resultData as any).logs || null);
       setPage('visualization');
+      // If a log modal is open for some reason, close it shortly after showing visualization
+      try { setTimeout(() => setCalculationLog(null), 800); } catch (e) { /* ignore */ }
 
     } catch (e: any) {
       console.error("Failed to call API:", e);

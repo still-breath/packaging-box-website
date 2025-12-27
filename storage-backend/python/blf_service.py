@@ -6,6 +6,10 @@ def run_blf_packing(container_data: Dict, items_data: List[Dict], groups_data: L
     Membungkus algoritma BLF dengan penanganan nilai None yang lebih baik.
     """
     try:
+        has_priority = any(('priority' in item and item.get('priority') is not None) for item in items_data)
+        if has_priority and not constraints.get('enforcePriority', False):
+            return {"error": "Priority diberikan pada beberapa kotak tetapi 'enforcePriority' belum diaktifkan. Aktifkan 'enforcePriority' sebelum menggunakan priority."}
+
         container = Container(
             name="blf_container",
             length=container_data['length'],

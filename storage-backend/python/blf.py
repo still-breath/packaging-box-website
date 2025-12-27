@@ -31,8 +31,14 @@ class Box:
         # Handle nilai None secara eksplisit untuk mencegah error perbandingan
         self.allowed_rotations = list(range(6)) if allowed_rotations is None else allowed_rotations
         self.max_stack_weight = float('inf') if max_stack_weight is None else max_stack_weight
-        self.priority = 5 if priority is None else priority
-        self.destination_group = 99 if destination_group is None else destination_group
+        try:
+            self.priority = 5 if priority is None else int(priority)
+        except Exception:
+            self.priority = 5
+        try:
+            self.destination_group = 99 if destination_group is None else int(destination_group)
+        except Exception:
+            self.destination_group = 99
     
     def get_volume(self) -> float:
         return self.length * self.width * self.height
@@ -210,11 +216,11 @@ class ContainerPackingOptimizer:
         container.reset()
         boxes_copy = copy.deepcopy(boxes)
         
-        # Sorting berdasarkan constraint aktif
         sort_keys = []
         if constraints.get('enforceLIFO', False):
             sort_keys.append(lambda b: b.destination_group)
-        if constraints.get('enforcePriority', False):
+        has_nondefault_priority = any(getattr(b, 'priority', 5) != 5 for b in boxes_copy)
+        if constraints.get('enforcePriority', False) or has_nondefault_priority:
             sort_keys.append(lambda b: b.priority)
         
         # Selalu sort berdasarkan volume sebagai tie-breaker
@@ -230,17 +236,28 @@ class ContainerPackingOptimizer:
             best_position = None
             best_rotation = None
             best_score = float('inf')
+            # debugging counters
+            rotations_tried = 0
+            positions_tried = 0
+            too_large_for_container = True
             
             # Coba semua rotasi yang diizinkan
             for rotation in box.get_all_rotations():
                 length, width, height, rotation_type = rotation
                 temp_box = copy.deepcopy(box)
                 temp_box.set_rotation(length, width, height, rotation_type)
+                rotations_tried += 1
+                # quick reject: if this rotation exceeds container dims, skip
+                if (temp_box.length > container.length or temp_box.width > container.width or temp_box.height > container.height):
+                    # still check other rotations
+                    continue
+                too_large_for_container = False
                 
                 # Generate posisi yang mungkin
                 positions = self._generate_positions(container)
                 
                 for x, y, z in positions:
+                    positions_tried += 1
                     if container.can_fit_box(temp_box, x, y, z, constraints):
                         # Scoring: prioritas Z (tinggi), lalu Y, lalu X
                         score = z * 1e9 + y * 1e6 + x
@@ -256,6 +273,21 @@ class ContainerPackingOptimizer:
                 container.add_box(box, *best_position)
                 packed.append(box)
             else:
+                # Collect failure reason hints
+                reason = None
+                if too_large_for_container:
+                    reason = 'too_large_for_container_in_all_rotations'
+                elif rotations_tried == 0:
+                    reason = 'no_allowed_rotations'
+                else:
+                    reason = f'no_valid_position_found (rotations_tried={rotations_tried}, positions_tried={positions_tried})'
+
+                # Print debug info to server logs for diagnosis
+                try:
+                    print(f"BLF: could not place box {box.name}: {reason}. dims={box.original_dims} weight={box.weight} priority={getattr(box,'priority',None)}")
+                except Exception:
+                    pass
+
                 unpacked.append(box)
         
         return packed, unpacked

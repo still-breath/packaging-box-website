@@ -161,6 +161,13 @@ const DataCalculationPage = ({
   };
   
   const handleVisualizeClick = (algorithm: string) => {
+    // Validate: do not allow sending numeric priorities when Enforce Priority is off
+    const hasPrioritySet = boxes.some(b => typeof b.priority === 'number');
+    if (hasPrioritySet && !constraints.enforcePriority) {
+      alert("You have set priority values in Boxes To Load but 'Enforce Priority' is not enabled. Please enable 'Enforce Priority' or clear priority values.");
+      return;
+    }
+
     onVisualize(algorithm, container, boxes, groups, constraints, activityName);
   };
 
@@ -256,6 +263,7 @@ const DataCalculationPage = ({
             <CustomToggle label="Enforce Priority" checked={constraints.enforcePriority} onChange={(e) => handleConstraintChange('enforcePriority', e.target.checked)} />
             <CustomToggle label="Enforce LIFO" checked={constraints.enforceLIFO} onChange={(e) => handleConstraintChange('enforceLIFO', e.target.checked)} />
           </div>
+            {/* Priority hint removed — validation happens on Visualize click */}
         </div>
         <div className="summary-sidebar">
             <div className="summary-card">
@@ -311,7 +319,7 @@ const DataCalculationPage = ({
                     </select>
                     <input type="text" placeholder="e.g. 0,1,2" value={(box.allowed_rotations as any) || ''} onChange={(e) => handleBoxChange(box.id, 'allowed_rotations', e.target.value)} className="text-input" title="Allowed rotations (0-5), comma separated. Leave empty for all." />
                     <input type="number" value={box.max_stack_weight || ''} onChange={(e) => handleBoxChange(box.id, 'max_stack_weight', Number(e.target.value))} className="text-input" title="Max weight on top of this box."/>
-                    <input type="number" value={box.priority || ''} onChange={(e) => handleBoxChange(box.id, 'priority', Number(e.target.value))} className="text-input" title="Priority (1-5, 1 is highest)"/>
+                    <input type="number" value={box.priority || ''} onChange={(e) => handleBoxChange(box.id, 'priority', Number(e.target.value))} className="text-input" title="Priority (1-5, 1 is highest)" />
                     <input type="number" value={box.destination_group || ''} onChange={(e) => handleBoxChange(box.id, 'destination_group', Number(e.target.value))} className="text-input" title="Destination group (1 is furthest)"/>
                     <div className="action-cell">
                       <button onClick={() => removeBox(box.id)} className="delete-button">

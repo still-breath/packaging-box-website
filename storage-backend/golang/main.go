@@ -46,13 +46,17 @@ type Container struct {
 }
 
 type Item struct {
-	ID       string  `json:"id"`
-	Quantity int     `json:"quantity"`
-	Length   float64 `json:"length"`
-	Width    float64 `json:"width"`
-	Height   float64 `json:"height"`
-	Weight   float64 `json:"weight"`
-	Group    string  `json:"group"`
+	ID               string  `json:"id"`
+	Quantity         int     `json:"quantity"`
+	Length           float64 `json:"length"`
+	Width            float64 `json:"width"`
+	Height           float64 `json:"height"`
+	Weight           float64 `json:"weight"`
+	Group            string  `json:"group"`
+	AllowedRotations []int   `json:"allowed_rotations,omitempty"`
+	MaxStackWeight   float64 `json:"max_stack_weight,omitempty"`
+	Priority         int     `json:"priority,omitempty"`
+	DestinationGroup int     `json:"destination_group,omitempty"`
 }
 
 type Group struct {
@@ -253,6 +257,20 @@ func setupDatabase(pool *pgxpool.Pool) {
 		-- Ensure external_id column exists to store frontend item identifiers
 		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'items' AND column_name = 'external_id') THEN
 			ALTER TABLE items ADD COLUMN external_id VARCHAR(255);
+		END IF;
+
+		-- Ensure stacking/priority/rotation columns exist
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'items' AND column_name = 'max_stack_weight') THEN
+			ALTER TABLE items ADD COLUMN max_stack_weight DECIMAL;
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'items' AND column_name = 'priority') THEN
+			ALTER TABLE items ADD COLUMN priority INTEGER;
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'items' AND column_name = 'allowed_rotations') THEN
+			ALTER TABLE items ADD COLUMN allowed_rotations INTEGER[];
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'items' AND column_name = 'destination_group') THEN
+			ALTER TABLE items ADD COLUMN destination_group INTEGER;
 		END IF;
 		
 		-- Remove old columns if they exist
@@ -1131,8 +1149,8 @@ func handleGoCalculation(db *pgxpool.Pool) gin.HandlerFunc {
 				}
 			}
 
-			itemSQL := `INSERT INTO items (container_id, name, width, height, length, weight, quantity, group_id, external_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);`
-			_, err = tx.Exec(context.Background(), itemSQL, containerID, displayName, item.Width, item.Height, item.Length, item.Weight, item.Quantity, groupID, item.ID)
+			itemSQL := `INSERT INTO items (container_id, name, width, height, length, weight, quantity, group_id, external_id, max_stack_weight, priority, allowed_rotations, destination_group) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13);`
+			_, err = tx.Exec(context.Background(), itemSQL, containerID, displayName, item.Width, item.Height, item.Length, item.Weight, item.Quantity, groupID, item.ID, item.MaxStackWeight, item.Priority, item.AllowedRotations, item.DestinationGroup)
 			if err != nil {
 				log.Printf("Failed to insert item: %v", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save item data."})

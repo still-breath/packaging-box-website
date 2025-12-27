@@ -127,7 +127,13 @@ async def handle_python_calculation(request: CalculationRequest):
 
     result = {}
     
+    # Log incoming payload for debugging
     print(f"Menerima permintaan untuk algoritma: {request.algorithm}")
+    try:
+        print("Constraints:", constraints_dict)
+        print("Items count:", len(items_list))
+    except Exception:
+        pass
 
     if request.algorithm == "PYTHON_BLF":
         result = run_blf_packing(container_dict, items_list, groups_list, constraints_dict)
@@ -137,6 +143,11 @@ async def handle_python_calculation(request: CalculationRequest):
         result = run_ga_packing(container_dict, items_list, groups_list, constraints_dict)
     else:
         return {"error": f"Algoritma tidak dikenal: {request.algorithm}"}
+
+    # If the algorithm wrapper returned an error dict, convert to HTTP 400
+    if isinstance(result, dict) and result.get("error"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=result.get("error"))
 
     return result
 
