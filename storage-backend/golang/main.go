@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1654,12 +1655,18 @@ func handleCreateItemGroup(db *pgxpool.Pool) gin.HandlerFunc {
 func handleUpdateItemGroup(db *pgxpool.Pool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		idParam := c.Param("id")
+		// ensure id is an integer
+		idInt, err := strconv.Atoi(idParam)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid group id"})
+			return
+		}
 		var req createGroupRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 			return
 		}
-		cmdTag, err := db.Exec(context.Background(), "UPDATE item_groups SET name=$1, color=$2 WHERE id=$3;", req.Name, req.Color, idParam)
+		cmdTag, err := db.Exec(context.Background(), "UPDATE item_groups SET name=$1, color=$2 WHERE id=$3;", req.Name, req.Color, idInt)
 		if err != nil {
 			log.Printf("Failed to update item_group %s: %v", idParam, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update item group"})
@@ -1676,9 +1683,35 @@ func handleUpdateItemGroup(db *pgxpool.Pool) gin.HandlerFunc {
 func handleDeleteItemGroup(db *pgxpool.Pool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		idParam := c.Param("id")
-		cmdTag, err := db.Exec(context.Background(), "DELETE FROM item_groups WHERE id=$1;", idParam)
+		// ensure id is an integer
+		idInt, err := strconv.Atoi(idParam)
 		if err != nil {
-			log.Printf("Failed to delete item_group %s: %v", idParam, err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid group id"})
+			return
+		}
+
+		// Use a transaction: clear references in items, then delete the group
+		tx, err := db.Begin(context.Background())
+		if err != nil {
+			log.Printf("Failed to begin tx for deleting item_group %d: %v", idInt, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete item group"})
+			return
+		}
+		defer func() {
+			_ = tx.Rollback(context.Background())
+		}()
+
+		// unset group references on items
+		if _, err := tx.Exec(context.Background(), "UPDATE items SET group_id = NULL WHERE group_id = $1;", idInt); err != nil {
+			log.Printf("Failed to clear item references for item_group %d: %v", idInt, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete item group"})
+			return
+		}
+
+		// delete the group
+		cmdTag, err := tx.Exec(context.Background(), "DELETE FROM item_groups WHERE id=$1;", idInt)
+		if err != nil {
+			log.Printf("Failed to delete item_group %d: %v", idInt, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete item group"})
 			return
 		}
@@ -1686,6 +1719,13 @@ func handleDeleteItemGroup(db *pgxpool.Pool) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Item group not found"})
 			return
 		}
+
+		if err := tx.Commit(context.Background()); err != nil {
+			log.Printf("Failed to commit tx deleting item_group %d: %v", idInt, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete item group"})
+			return
+		}
+
 		c.JSON(http.StatusOK, gin.H{"status": "deleted"})
 	}
 }
