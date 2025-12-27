@@ -38,6 +38,8 @@ const DataCalculationPage = ({
   const [selectedPreset, setSelectedPreset] = useState<'' | '10ft' | '20ft' | '40ft'>('');
   const [selectedExcelAction, setSelectedExcelAction] = useState<'' | 'IMPORT' | 'TEMPLATE'>('');
   const [activityName, setActivityName] = useState<string>('');
+  const [constraintModal, setConstraintModal] = useState<{ visible: boolean; warnings: { priority: boolean; stacking: boolean; lifo: boolean } }>({ visible: false, warnings: { priority: false, stacking: false, lifo: false } });
+  const pendingVisualizeRef = useRef<{ algorithm: string } | null>(null);
 
   const handleImportClick = () => {
     fileInputRef.current?.click();
@@ -161,18 +163,90 @@ const DataCalculationPage = ({
   };
   
   const handleVisualizeClick = (algorithm: string) => {
-    // Validate: do not allow sending numeric priorities when Enforce Priority is off
-    const hasPrioritySet = boxes.some(b => typeof b.priority === 'number');
-    if (hasPrioritySet && !constraints.enforcePriority) {
-      alert("You have set priority values in Boxes To Load but 'Enforce Priority' is not enabled. Please enable 'Enforce Priority' or clear priority values.");
+    const hasPrioritySet = boxes.some(b => {
+      const p = Number(b.priority);
+      return Number.isFinite(p) && p >= 1 && p <= 5;
+    });
+    const hasStackingSet = boxes.some(b => {
+      const s = Number(b.max_stack_weight);
+      return Number.isFinite(s) && s > 0;
+    });
+    const hasLifoSet = boxes.some(b => {
+      const d = Number(b.destination_group);
+      return Number.isFinite(d) && d >= 1;
+    });
+
+    const warnPriority = hasPrioritySet && !constraints.enforcePriority;
+    const warnStacking = hasStackingSet && !constraints.enforceStacking;
+    const warnLifo = hasLifoSet && !constraints.enforceLIFO;
+
+    if (warnPriority || warnStacking || warnLifo) {
+      // show modal with options
+      setConstraintModal({ visible: true, warnings: { priority: warnPriority, stacking: warnStacking, lifo: warnLifo } });
+      pendingVisualizeRef.current = { algorithm };
       return;
     }
 
     onVisualize(algorithm, container, boxes, groups, constraints, activityName);
   };
 
+  const doVisualizeAfterModal = (action: 'enable' | 'clear' | 'cancel') => {
+    const alg = pendingVisualizeRef.current?.algorithm || '';
+    const warnings = constraintModal.warnings;
+    setConstraintModal({ visible: false, warnings: { priority: false, stacking: false, lifo: false } });
+    pendingVisualizeRef.current = null;
+
+    if (action === 'cancel') return;
+
+    if (action === 'enable') {
+      const newConstraints = {
+        ...constraints,
+        enforcePriority: constraints.enforcePriority || warnings.priority,
+        enforceStacking: constraints.enforceStacking || warnings.stacking,
+        enforceLIFO: constraints.enforceLIFO || warnings.lifo,
+      };
+      setConstraints(newConstraints as any);
+      // slight delay so toggles update visually
+      setTimeout(() => onVisualize(alg, container, boxes, groups, newConstraints, activityName), 150);
+      return;
+    }
+
+    if (action === 'clear') {
+      // clear offending fields from boxes then proceed
+      const cleaned = boxes.map(b => ({ ...b,
+        priority: warnings.priority ? undefined : b.priority,
+        max_stack_weight: warnings.stacking ? undefined : b.max_stack_weight,
+        destination_group: warnings.lifo ? undefined : b.destination_group,
+      }));
+      setBoxes(cleaned);
+      // proceed with visualize after state update
+      setTimeout(() => onVisualize(alg, container, cleaned, groups, constraints, activityName), 150);
+      return;
+    }
+  };
+
   return (
     <div className="page-container">
+      {constraintModal.visible && (
+        <div className="modal-overlay" style={{position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200}}>
+          <div className="modal" style={{background: 'white', padding: '1rem 1.25rem', borderRadius: '8px', width: '420px', boxShadow: '0 6px 18px rgba(0,0,0,0.2)'}}>
+            <h3 style={{marginTop: 0}}>Constraint mismatch</h3>
+            <div style={{marginBottom: '0.75rem'}}>
+              <p>Some boxes include constraint fields but the corresponding enforcement toggles are OFF. Choose an action:</p>
+              <ul style={{margin: '0.25rem 0 0 1rem'}}>
+                {constraintModal.warnings.priority && <li>Priority values are present but <strong>Enforce Priority</strong> is disabled.</li>}
+                {constraintModal.warnings.stacking && <li>Max stack weight values are present but <strong>Enforce Stacking</strong> is disabled.</li>}
+                {constraintModal.warnings.lifo && <li>Destination group values are present but <strong>Enforce LIFO</strong> is disabled.</li>}
+              </ul>
+            </div>
+            <div style={{display: 'flex', gap: '0.5rem', justifyContent: 'flex-end'}}>
+              <button onClick={() => doVisualizeAfterModal('cancel')} style={{padding: '0.4rem 0.7rem'}}>Cancel</button>
+              <button onClick={() => doVisualizeAfterModal('clear')} style={{padding: '0.4rem 0.7rem'}}>Clear fields</button>
+              <button onClick={() => doVisualizeAfterModal('enable')} style={{padding: '0.4rem 0.7rem'}} className="primary">Enable constraints</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="sidebar">
         <div className="card">
             <h3 className="card-title">LOAD PRESET</h3>
