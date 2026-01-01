@@ -59,6 +59,13 @@ const VisualizationPage = ({
 
     const [visibleItems, setVisibleItems] = useState<{ [id: string]: boolean }>({});
 
+    // Animation controls
+    const [animationIndex, setAnimationIndex] = useState<number>(result.placedItems ? result.placedItems.length : 0);
+    const [animationProgress, setAnimationProgress] = useState<number>(0); // 0..1
+    const [isPlaying, setIsPlaying] = useState<boolean>(false);
+    const [animationSpeedSetting, setAnimationSpeedSetting] = useState<number>(5);
+    const [animationMode, setAnimationMode] = useState<boolean>(false);
+
     useEffect(() => {
         if (result.placedItems) {
             const initialVisibility = result.placedItems.reduce((acc, item) => {
@@ -66,8 +73,38 @@ const VisualizationPage = ({
                 return acc;
             }, {} as { [id: string]: boolean });
             setVisibleItems(initialVisibility);
+            // keep animation index inside bounds when result changes
+            setAnimationIndex(result.placedItems.length);
         }
     }, [result.placedItems]);
+
+    // Play loop using requestAnimationFrame
+    useEffect(() => {
+        if (!isPlaying) return;
+        if (!result.placedItems || result.placedItems.length === 0) { setIsPlaying(false); return; }
+        const MIN_MS = 200;
+        const MAX_MS = 2000;
+        const steps = 10;
+        const msPerStep = MAX_MS - (Math.max(1, Math.min(steps, animationSpeedSetting)) - 1) * ((MAX_MS - MIN_MS) / (steps - 1));
+
+        let rafId = 0;
+        let last = performance.now();
+        const loop = (now: number) => {
+            const dt = now - last;
+            last = now;
+            setAnimationProgress(p => {
+                const next = p + dt / msPerStep;
+                if (next >= 1) {
+                    setAnimationIndex(i => Math.min(i + 1, result.placedItems.length));
+                    return 0;
+                }
+                return next;
+            });
+            rafId = requestAnimationFrame(loop);
+        };
+        rafId = requestAnimationFrame(loop);
+        return () => cancelAnimationFrame(rafId);
+    }, [isPlaying, animationSpeedSetting, result.placedItems]);
 
     const colorToGroupMap = useMemo(() => initialGroups.reduce((acc, group) => {
         if (group?.color) {
@@ -107,30 +144,85 @@ const VisualizationPage = ({
                 <div className="card">
                     <h3 className="card-title">{formatAlgorithmName(algorithm)}</h3>
                     <div style={{marginTop: '0.5rem'}}>
-                        <button className="visualize-button" onClick={async () => {
-                            try {
-                                const payload = { result, container, groups: initialGroups, algorithm };
-                                const blob = await exportExcel(payload);
-                                const url = window.URL.createObjectURL(blob);
-                                const a = document.createElement('a');
-                                a.href = url;
-                                const now = new Date();
-                                const y = now.getFullYear();
-                                const m = String(now.getMonth() + 1).padStart(2, '0');
-                                const d = String(now.getDate()).padStart(2, '0');
-                                const yyyymmdd = `${y}${m}${d}`;
-                                const sanitize = (s: string) => s ? s.replace(/[^a-z0-9 _-]/gi, '').trim().replace(/\s+/g, '_').slice(0,100) : '';
-                                const base = (activityName && activityName.trim().length > 0) ? sanitize(activityName) : sanitize(algorithm || 'visualization');
-                                a.download = `${base}_${yyyymmdd}_${algorithm}.xlsx`;
-                                document.body.appendChild(a);
-                                a.click();
-                                a.remove();
-                                window.URL.revokeObjectURL(url);
-                            } catch (e) {
-                                console.error('Export failed', e);
-                                alert('Export failed');
-                            }
-                        }}>Export Excel</button>
+                        <div style={{display: 'flex', flexDirection: 'column', gap: '0.35rem', maxWidth: '100%', boxSizing: 'border-box'}}>
+                            <div style={{display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap'}}>
+                                {!animationMode && (
+                                    <>
+                                        <button className="visualize-button" onClick={async () => {
+                                            try {
+                                                const payload = { result, container, groups: initialGroups, algorithm };
+                                                const blob = await exportExcel(payload);
+                                                const url = window.URL.createObjectURL(blob);
+                                                const a = document.createElement('a');
+                                                a.href = url;
+                                                const now = new Date();
+                                                const y = now.getFullYear();
+                                                const m = String(now.getMonth() + 1).padStart(2, '0');
+                                                const d = String(now.getDate()).padStart(2, '0');
+                                                const yyyymmdd = `${y}${m}${d}`;
+                                                const sanitize = (s: string) => s ? s.replace(/[^a-z0-9 _-]/gi, '').trim().replace(/\s+/g, '_').slice(0,100) : '';
+                                                const base = (activityName && activityName.trim().length > 0) ? sanitize(activityName) : sanitize(algorithm || 'visualization');
+                                                a.download = `${base}_${yyyymmdd}_${algorithm}.xlsx`;
+                                                document.body.appendChild(a);
+                                                a.click();
+                                                a.remove();
+                                                window.URL.revokeObjectURL(url);
+                                            } catch (e) {
+                                                console.error('Export failed', e);
+                                                alert('Export failed');
+                                            }
+                                        }}>Export Excel</button>
+
+                                        <button className="visualize-button" onClick={() => {
+                                            const next = !animationMode;
+                                            setAnimationMode(next);
+                                            setIsPlaying(false);
+                                            setAnimationProgress(0);
+                                            if (next) {
+                                                setAnimationIndex(0);
+                                            } else {
+                                                setAnimationIndex(result.placedItems ? result.placedItems.length : 0);
+                                            }
+                                        }}>{animationMode ? 'Exit Animation' : 'Animation Mode'}</button>
+                                    </>
+                                )}
+
+                                {animationMode && (
+                                    <>
+                                        <button className="visualize-button" onClick={() => {
+                                            setAnimationMode(false);
+                                            setIsPlaying(false);
+                                            setAnimationProgress(0);
+                                            setAnimationIndex(result.placedItems ? result.placedItems.length : 0);
+                                        }}>
+                                            <div style={{display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: '1'}}>
+                                                <span>Exit</span>
+                                                <span style={{marginTop: '0.1rem', fontSize: '0.75rem'}}>Animation</span>
+                                            </div>
+                                        </button>
+
+                                        <button className="visualize-button" onClick={() => { setAnimationIndex(0); setAnimationProgress(0); setIsPlaying(true); }}>Play</button>
+                                        <button className="visualize-button" onClick={() => setIsPlaying(false)}>Pause</button>
+                                    </>
+                                )}
+                            </div>
+
+                            <div style={{display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: animationMode ? '0.25rem' : undefined, flexWrap: 'wrap'}}>
+                                {animationMode && (
+                                    <>
+                                        <div style={{display: 'flex', gap: '0.25rem', alignItems: 'center'}}>
+                                            <button className="visualize-button" onClick={() => { setIsPlaying(false); setAnimationProgress(0); setAnimationIndex(i => Math.max(0, i - 1)); }}>Step Back</button>
+                                            <button className="visualize-button" onClick={() => { setIsPlaying(false); setAnimationProgress(0); setAnimationIndex(i => Math.min(result.placedItems.length, i + 1)); }}>Step Forward</button>
+                                        </div>
+
+                                        <div style={{display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem', marginLeft: '0.5rem'}}>
+                                            <label style={{fontSize: '0.75rem'}}>Speed</label>
+                                            <input type="range" min={1} max={10} step={1} value={animationSpeedSetting} onChange={(e) => setAnimationSpeedSetting(Number(e.target.value))} />
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        </div>
                     </div>
                     <p style={{fontSize: '0.75rem', color: '#6b7280'}}>Calculated at {new Date(Date.now()).toLocaleString('id-ID')}</p>
                     <div style={{marginTop: '0.5rem', fontSize: '0.875rem'}}>
@@ -190,6 +282,8 @@ const VisualizationPage = ({
                     containerDimensions={container}
                     settings={settings}
                     visibleItems={visibleItems}
+                    animationIndex={animationIndex}
+                    animationProgress={animationProgress}
                 />
             </div>
 

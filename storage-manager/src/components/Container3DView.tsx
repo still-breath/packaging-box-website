@@ -10,19 +10,23 @@ interface Container3DViewProps {
   containerDimensions: Container;
   settings: any;
   visibleItems: { [id: string]: boolean };
+    animationIndex?: number;
+    animationProgress?: number; // 0..1
 }
 
 // Clean Wooden Crate Component
-const WoodenCrate = ({ position, size, color, showEdges }: any) => {
+const WoodenCrate = ({ position, size, color, showEdges, opacity = 1 }: any) => {
     const [width, height, depth] = size;
     const woodColor = '#D2B48C';
     const labelColor = color || '#FF1493';
+    const useTransparent = opacity < 1;
 
     return (
         <group position={position}>
             <Box args={[width, height, depth]} castShadow receiveShadow>
                 <meshLambertMaterial 
                     color={woodColor}
+                    {...(useTransparent ? { transparent: true, opacity } : {})}
                 />
             </Box>
 
@@ -39,6 +43,7 @@ const WoodenCrate = ({ position, size, color, showEdges }: any) => {
                 >
                     <meshLambertMaterial 
                         color={new THREE.Color(woodColor).multiplyScalar(0.95)}
+                        {...(useTransparent ? { transparent: true, opacity } : {})}
                     />
                 </Box>
             ))}
@@ -99,7 +104,7 @@ const WoodenCrate = ({ position, size, color, showEdges }: any) => {
                 position={[width * 0.25, height * 0.2, depth/2 + 0.01]}
                 castShadow
             >
-                <meshLambertMaterial color={labelColor} />
+                <meshLambertMaterial color={labelColor} {...(useTransparent ? { transparent: true, opacity } : {})} />
             </Box>
 
             <Box
@@ -107,7 +112,7 @@ const WoodenCrate = ({ position, size, color, showEdges }: any) => {
                 position={[width/2 + 0.01, height * 0.2, 0]}
                 castShadow
             >
-                <meshLambertMaterial color={labelColor} />
+                <meshLambertMaterial color={labelColor} {...(useTransparent ? { transparent: true, opacity } : {})} />
             </Box>
 
             {[
@@ -130,6 +135,7 @@ const WoodenCrate = ({ position, size, color, showEdges }: any) => {
                         color="#696969"
                         metalness={0.7}
                         roughness={0.4}
+                        {...(useTransparent ? { transparent: true, opacity } : {})}
                     />
                 </Box>
             ))}
@@ -145,7 +151,7 @@ const WoodenCrate = ({ position, size, color, showEdges }: any) => {
     );
 };
 
-const Container3DView = ({ items, containerDimensions, settings, visibleItems }: Container3DViewProps) => {
+const Container3DView = ({ items, containerDimensions, settings, visibleItems, animationIndex = Number.MAX_SAFE_INTEGER, animationProgress = 1 }: Container3DViewProps) => {
     const scale = 0.01; 
 
     const scaledContainer = {
@@ -154,7 +160,8 @@ const Container3DView = ({ items, containerDimensions, settings, visibleItems }:
         depth: containerDimensions.width * scale,
     };
 
-    const itemsToRender = items.filter(item => visibleItems[item.id]);
+    // We'll render items up to animationIndex. The item at animationIndex will be shown with animationProgress.
+    const itemsToRender = items.map((item, idx) => ({ item, idx })).filter(({ item }) => visibleItems[item.id]);
 
     return (
         <Canvas 
@@ -218,7 +225,7 @@ const Container3DView = ({ items, containerDimensions, settings, visibleItems }:
                 </group>
             )}
 
-            {settings.showGoods && itemsToRender.map((item) => {
+            {settings.showGoods && itemsToRender.map(({ item, idx }) => {
                 const scaledItem = { 
                     width: item.length * scale,
                     height: item.height * scale,
@@ -235,14 +242,23 @@ const Container3DView = ({ items, containerDimensions, settings, visibleItems }:
                     (boxCenterZ - containerDimensions.width / 2) * scale,
                 ];
 
+                const isBefore = idx < animationIndex;
+                const isCurrent = idx === animationIndex;
+                if (!isBefore && !isCurrent) return null;
+
+                const animScale = isCurrent ? (0.2 + 0.8 * animationProgress) : 1;
+                const opacity = 1; // keep boxes opaque (no transparency)
+
                 return (
-                    <WoodenCrate
-                        key={item.id}
-                        position={position}
-                        size={[scaledItem.width, scaledItem.height, scaledItem.depth]}
-                        color={item.color}
-                        showEdges={settings.showGoodEdges}
-                    />
+                    <group key={item.id} position={position} scale={[animScale, animScale, animScale]}>
+                        <WoodenCrate
+                            position={[0,0,0]}
+                            size={[scaledItem.width, scaledItem.height, scaledItem.depth]}
+                            color={item.color}
+                            showEdges={settings.showGoodEdges}
+                            opacity={opacity}
+                        />
+                    </group>
                 );
             })}
             
